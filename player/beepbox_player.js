@@ -16777,11 +16777,6 @@ var beepbox = (function (exports) {
             this.resetEffects();
             this.snapToBar();
         }
-        goToBar(bar) {
-            this.bar = bar;
-            this.resetEffects();
-            this.playheadInternal = this.bar;
-        }
         snapToBar() {
             this.playheadInternal = this.bar;
             this.beat = 0;
@@ -16806,6 +16801,19 @@ var beepbox = (function (exports) {
             this.prevBar = this.bar;
             const oldBar = this.bar;
             this.bar++;
+            if (this.bar >= this.song.barCount) {
+                this.bar = 0;
+            }
+            this.playheadInternal += this.bar - oldBar;
+            if (this.playing)
+                this.computeLatestModValues();
+        }
+        goToBar(newBar) {
+            if (!this.song || newBar <= 0)
+                return;
+            const oldBar = newBar - 1;
+            this.prevBar = oldBar;
+            this.bar = newBar;
             if (this.bar >= this.song.barCount) {
                 this.bar = 0;
             }

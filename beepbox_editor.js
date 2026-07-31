@@ -1025,6 +1025,7 @@ var beepbox = (function (exports) {
         { name: "tempo", maxRawVol: Config.tempoMax - Config.tempoMin, newNoteVol: Math.ceil((Config.tempoMax - Config.tempoMin) / 2), forSong: true, convertRealFactor: Config.tempoMin, associatedEffect: 12 },
         { name: "song reverb", maxRawVol: Config.reverbRange * 2, newNoteVol: Config.reverbRange, forSong: true, convertRealFactor: -Config.reverbRange, associatedEffect: 12 },
         { name: "next bar", maxRawVol: 1, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 12 },
+        { name: "skip bars", maxRawVol: 20, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 12 },
         { name: "note volume", maxRawVol: Config.volumeRange, newNoteVol: Math.ceil(Config.volumeRange / 2), forSong: false, convertRealFactor: Math.ceil(-Config.volumeRange / 2.0), associatedEffect: 12 },
         { name: "pan", maxRawVol: Config.panMax, newNoteVol: Math.ceil(Config.panMax / 2), forSong: false, convertRealFactor: 0, associatedEffect: 2 },
         { name: "reverb", maxRawVol: Config.reverbRange, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 0 },
@@ -18385,6 +18386,7 @@ li.select2-results__option[role=group] > strong:hover {
             this.renderingSong = false;
             this.heldMods = [];
             this.wantToSkip = false;
+            this.skipMultiBar = 0.0;
             this.playheadInternal = 0.0;
             this.bar = 0;
             this.prevBar = null;
@@ -18645,11 +18647,6 @@ li.select2-results__option[role=group] > strong:hover {
             this.resetEffects();
             this.snapToBar();
         }
-        goToBar(bar) {
-            this.bar = bar;
-            this.resetEffects();
-            this.playheadInternal = this.bar;
-        }
         snapToBar() {
             this.playheadInternal = this.bar;
             this.beat = 0;
@@ -18668,31 +18665,25 @@ li.select2-results__option[role=group] > strong:hover {
                     this.computeLatestModValues();
             }
         }
-        goToNextBar() {
-            if (!this.song)
+        goToBar(newBar) {
+            if (!this.song || newBar < 0)
                 return;
-            this.prevBar = this.bar;
-            const oldBar = this.bar;
-            this.bar++;
+            const oldBar = newBar - 1;
+            this.prevBar = oldBar;
+            this.bar = newBar;
+            this.snapToBar();
             if (this.bar >= this.song.barCount) {
                 this.bar = 0;
             }
-            this.playheadInternal += this.bar - oldBar;
+            this.playheadInternal = this.bar;
             if (this.playing)
                 this.computeLatestModValues();
         }
+        goToNextBar() {
+            this.goToBar(this.bar + 1);
+        }
         goToPrevBar() {
-            if (!this.song)
-                return;
-            this.prevBar = null;
-            const oldBar = this.bar;
-            this.bar--;
-            if (this.bar < 0 || this.bar >= this.song.barCount) {
-                this.bar = this.song.barCount - 1;
-            }
-            this.playheadInternal += this.bar - oldBar;
-            if (this.playing)
-                this.computeLatestModValues();
+            this.goToBar(this.bar - 1);
         }
         getNextBar() {
             let nextBar = this.bar + 1;
@@ -18708,29 +18699,6 @@ li.select2-results__option[role=group] > strong:hover {
                 nextBar = this.song.loopStart;
             }
             return nextBar;
-        }
-        skipBar() {
-            if (!this.song)
-                return;
-            const samplesPerTick = this.getSamplesPerTick();
-            this.prevBar = this.bar;
-            if (this.loopBarEnd != this.bar)
-                this.bar++;
-            else {
-                this.bar = this.loopBarStart;
-            }
-            this.beat = 0;
-            this.part = 0;
-            this.tick = 0;
-            this.tickSampleCountdown = samplesPerTick;
-            this.isAtStartOfTick = true;
-            if (this.loopRepeatCount != 0 && this.bar == Math.max(this.song.loopStart + this.song.loopLength, this.loopBarEnd + 1)) {
-                this.bar = this.song.loopStart;
-                if (this.loopBarStart != -1)
-                    this.bar = this.loopBarStart;
-                if (this.loopRepeatCount > 0)
-                    this.loopRepeatCount--;
-            }
         }
         synthesize(outputDataL, outputDataR, outputBufferLength, playSong = true) {
             if (this.song == null) {
@@ -18841,7 +18809,22 @@ li.select2-results__option[role=group] > strong:hover {
                     if (!barVisited)
                         skippedBars.push(this.bar);
                     this.wantToSkip = false;
-                    this.skipBar();
+                    this.goToBar(this.bar + 1);
+                    continue;
+                }
+                if (this.skipMultiBar > 0) {
+                    let barVisited = skippedBars.includes(this.bar);
+                    if (barVisited && bufferIndex == firstSkippedBufferIndex) {
+                        this.pause();
+                        return;
+                    }
+                    if (firstSkippedBufferIndex == -1) {
+                        firstSkippedBufferIndex = bufferIndex;
+                    }
+                    if (!barVisited)
+                        skippedBars.push(this.bar);
+                    this.goToBar(this.skipMultiBar + this.bar);
+                    this.skipMultiBar = 0;
                     continue;
                 }
                 for (let channelIndex = 0; channelIndex < song.pitchChannelCount + song.noiseChannelCount; channelIndex++) {
@@ -22185,6 +22168,9 @@ li.select2-results__option[role=group] > strong:hover {
                 }
                 else if (setting == Config.modulators.dictionary["next bar"].index) {
                     synth.wantToSkip = true;
+                }
+                else if (setting == Config.modulators.dictionary["skip bars"].index) {
+                    synth.skipMultiBar = synth.getModValue(setting, null, null, false);
                 }
                 else if (setting == Config.modulators.dictionary["eq filter"].index) {
                     const tgtInstrument = synth.song.channels[instrument.modChannels[mod]].instruments[usedInstruments[instrumentIndex]];
@@ -36539,6 +36525,7 @@ You should be redirected to the song at:<br /><br />
         ["tempo"]: { pianoName: "Tempo", promptName: "Song Tempo", promptDesc: ["This setting controls the speed your song plays at, just like the tempo slider.", "When you first make a note for this setting, it will default to your current tempo. Raising it speeds up the song, up to $HI BPM, and lowering it slows it down, to a minimum of $LO BPM.", "Note that you can make a 'swing' effect by rapidly changing between two tempo values.", "[OVERWRITING] [$LO - $HI] [BPM]"] },
         ["song reverb"]: { pianoName: "Reverb", promptName: "Song Reverb", promptDesc: ["This setting affects the overall reverb of your song. It works by multiplying existing reverb for instruments, so those with no reverb set will be unaffected.", "At $MID, all instruments' reverb will be unchanged from default. This increases up to double the reverb value at $HI, or down to no reverb at $LO.", "[MULTIPLICATIVE] [$LO - $HI]"] },
         ["next bar"]: { pianoName: "Next Bar", promptName: "Go To Next Bar", promptDesc: ["This setting functions a little different from most. Wherever a note is placed, the song will jump immediately to the next bar when it is encountered.", "This jump happens at the very start of the note, so the length of a next-bar note is irrelevant. Also, the note can be value 0 or 1, but the value is also irrelevant - wherever you place a note, the song will jump.", "You can make mixed-meter songs or intro sections by cutting off unneeded beats with a next-bar modulator.", "[$LO - $HI]"] },
+        ["skip bars"]: { pianoName: "Skip Bars", promptName: "Skip Bars", promptDesc: ["This setting allows you to jump some amount of bars ahead. Nifty for skipping sections.", "[OVERWRITING] [$LO - $HI]"] },
         ["note volume"]: { pianoName: "Note Vol.", promptName: "Note Volume", promptDesc: ["This setting affects the volume of your instrument as if its note size had been scaled.", "At $MID, an instrument's volume will be unchanged from default. This means you can still use the volume sliders to mix the base volume of instruments. The volume gradually increases up to $HI, or decreases down to mute at $LO.", "This setting was the default for volume modulation in JummBox for a long time. Due to some new effects like distortion and bitcrush, note volume doesn't always allow fine volume control. Also, this modulator affects the value of FM modulator waves instead of just carriers. This can distort the sound which may be useful, but also may be undesirable. In those cases, use the 'mix volume' modulator instead, which will always just scale the volume with no added effects.", "For display purposes, this mod will show up on the instrument volume slider, as long as there is not also an active 'mix volume' modulator anyhow. However, as mentioned, it works more like changing note volume.", "[MULTIPLICATIVE] [$LO - $HI]"] },
         ["pan"]: { pianoName: "Pan", promptName: "Instrument Panning", promptDesc: ["This setting controls the panning of your instrument, just like the panning slider.", "At $LO, your instrument will sound like it is coming fully from the left-ear side. At $MID it will be right in the middle, and at $HI, it will sound like it's on the right.", "[OVERWRITING] [$LO - $HI] [L-R]"] },
         ["reverb"]: { pianoName: "Reverb", promptName: "Instrument Reverb", promptDesc: ["This setting controls the reverb of your insturment, just like the reverb slider.", "At $LO, your instrument will have no reverb. At $HI, it will be at maximum.", "[OVERWRITING] [$LO - $HI]"] },
@@ -42072,6 +42059,7 @@ You should be redirected to the song at:<br /><br />
                                 settingList.push("tempo");
                                 settingList.push("song reverb");
                                 settingList.push("next bar");
+                                settingList.push("skip bars");
                                 settingList.push("song detune");
                             }
                             else {
