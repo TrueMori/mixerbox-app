@@ -16691,7 +16691,7 @@ li.select2-results__option[role=group] > strong:hover {
     Song._latestGoldBoxVersion = 4;
     Song._oldestUltraBoxVersion = 1;
     Song._latestUltraBoxVersion = 5;
-    Song._variant = 0x75;
+    Song._variant = 0x6D;
     class PickedString {
         constructor() {
             this.delayLine = null;
@@ -42649,7 +42649,7 @@ You should be redirected to the song at:<br /><br />
                             break;
                         if (needControlForShortcuts == (event.ctrlKey || event.metaKey) && event.shiftKey) {
                             let curr_url = this._doc.song.toBase64String();
-                            if (Math.random() < 0.5) {
+                            if (Math.random() < 0.01) {
                                 curr_url = "u5N08Untitledna00s0k02l00e03t1oa7g0fj07r5O_U00000000000000000000i0o4433333333T1v0lu01f0118700q9510p032ad170A0F8B6Q467gPfa2bR0000E3c061963878T1v0lu01f011a600q9511b032ad170A0F8B6Q467gPfa2bR0000E3c061963878T1v00u01f0000qww010n5001d080A0F0B0Q4cr4Pb330R0000E3c0bn619628T5v00ua4f062ge2ec2f02j01960me00q814ad360HT-Iqijriiiih99h0E0c0T1v00u52f0000qww010v3001d080A1F2B4Q44i4Pf519R0000E3c0b862a78T5v00ud2f010k800q8227d230HU0000000000000h0E0c0T7v00u26f021842ua00q01ad070H_-CSQBKRKRJJJJh0IbE0c0T1v00u01f0118600q9511b032ad170A0F8B6Q467gPfa2bR0000E3c061963878T5v00ua2f050le2dc2j02e02fe00q8347ld380HK_Sziiirrqih99h0E0c0T8v0lu1af010r900q01ld020x670WO00E0c0b4x800000000i4w000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000p21dFA-IH4Z6yjQq9fhEA-ngFfhEAZ6yjQq9e19QOv1O4b9MdoDFkj7AYz8laZig9Wl4NM00000000000";
                             }
                             location.href = "player/" + (OFFLINE ? "index.html" : "") + "#song=" + curr_url;
@@ -43626,7 +43626,7 @@ You should be redirected to the song at:<br /><br />
                         break;
                     case "viewPlayer":
                         let curr_url = this._doc.song.toBase64String();
-                        if (Math.random() < 0.5) {
+                        if (Math.random() < 0.01) {
                             curr_url = "u5N08Untitledna00s0k02l00e03t1oa7g0fj07r5O_U00000000000000000000i0o4433333333T1v0lu01f0118700q9510p032ad170A0F8B6Q467gPfa2bR0000E3c061963878T1v0lu01f011a600q9511b032ad170A0F8B6Q467gPfa2bR0000E3c061963878T1v00u01f0000qww010n5001d080A0F0B0Q4cr4Pb330R0000E3c0bn619628T5v00ua4f062ge2ec2f02j01960me00q814ad360HT-Iqijriiiih99h0E0c0T1v00u52f0000qww010v3001d080A1F2B4Q44i4Pf519R0000E3c0b862a78T5v00ud2f010k800q8227d230HU0000000000000h0E0c0T7v00u26f021842ua00q01ad070H_-CSQBKRKRJJJJh0IbE0c0T1v00u01f0118600q9511b032ad170A0F8B6Q467gPfa2bR0000E3c061963878T5v00ua2f050le2dc2j02e02fe00q8347ld380HK_Sziiirrqih99h0E0c0T8v0lu1af010r900q01ld020x670WO00E0c0b4x800000000i4w000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000p21dFA-IH4Z6yjQq9fhEA-ngFfhEAZ6yjQq9e19QOv1O4b9MdoDFkj7AYz8laZig9Wl4NM00000000000";
                         }
                         location.href = "player/" + (OFFLINE ? "index.html" : "") + "#song=" + curr_url;

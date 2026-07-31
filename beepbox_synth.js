@@ -8207,7 +8207,7 @@ var beepbox = (function (exports) {
     Song._latestGoldBoxVersion = 4;
     Song._oldestUltraBoxVersion = 1;
     Song._latestUltraBoxVersion = 5;
-    Song._variant = 0x75;
+    Song._variant = 0x6D;
     class PickedString {
         constructor() {
             this.delayLine = null;
