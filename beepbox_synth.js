@@ -395,8 +395,17 @@ var beepbox = (function (exports) {
     Config.ratioVal = 12;
     Config.attackVal = 0;
     Config.releaseVal = 0.25;
+    Config.defaultPostProcessOrder = [
+        3,
+        4,
+        12,
+        2,
+        1,
+        6,
+        0,
+    ];
     Config.willReloadForCustomSamples = false;
-    Config.jsonFormat = "UltraBox";
+    Config.jsonFormat = "MixerBox";
     Config.scales = toNameMap([
         { name: "Free", realName: "chromatic", flags: [true, true, true, true, true, true, true, true, true, true, true, true] },
         { name: "Major", realName: "ionian", flags: [true, false, true, false, true, true, false, true, false, true, false, true] },
@@ -453,7 +462,7 @@ var beepbox = (function (exports) {
     Config.reverbRange = 32;
     Config.reverbDelayBufferSize = 16384;
     Config.reverbDelayBufferMask = Config.reverbDelayBufferSize - 1;
-    Config.volumeLinearRange = 100;
+    Config.volumeLinearRange = 50;
     Config.beatsPerBarMin = 1;
     Config.beatsPerBarMax = 64;
     Config.barCountMin = 1;
@@ -1014,7 +1023,6 @@ var beepbox = (function (exports) {
         { name: "next bar", maxRawVol: 1, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
         { name: "skip bars", maxRawVol: 20, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
         { name: "note volume", maxRawVol: Config.volumeRange, newNoteVol: Math.ceil(Config.volumeRange / 2), forSong: false, convertRealFactor: Math.ceil(-Config.volumeRange / 2.0), associatedEffect: 13 },
-        { name: "linear volume", maxRawVol: Config.volumeLinearRange, newNoteVol: Config.volumeLinearRange, forSong: false, convertRealFactor: 0, associatedEffect: 12 },
         { name: "pan", maxRawVol: Config.panMax, newNoteVol: Math.ceil(Config.panMax / 2), forSong: false, convertRealFactor: 0, associatedEffect: 2 },
         { name: "reverb", maxRawVol: Config.reverbRange, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 0 },
         { name: "distortion", maxRawVol: Config.distortionRange - 1, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 3 },
@@ -1053,6 +1061,7 @@ var beepbox = (function (exports) {
         { name: "dynamism", maxRawVol: Config.supersawDynamismMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
         { name: "spread", maxRawVol: Config.supersawSpreadMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
         { name: "saw shape", maxRawVol: Config.supersawShapeMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
+        { name: "linear volume", maxRawVol: Config.volumeLinearRange, newNoteVol: Config.volumeLinearRange, forSong: false, convertRealFactor: 0, associatedEffect: 12 },
     ]);
     function centerWave(wave) {
         let sum = 0.0;
@@ -3845,7 +3854,7 @@ var beepbox = (function (exports) {
                 this.preset = instrumentObject["preset"] >>> 0;
             }
             if (instrumentObject["volume"] != undefined) {
-                if (format == "jummbox" || format == "midbox" || format == "synthbox" || format == "goldbox" || format == "paandorasbox" || format == "ultrabox") {
+                if (format == "jummbox" || format == "midbox" || format == "synthbox" || format == "goldbox" || format == "paandorasbox" || format == "ultrabox" || format == "mixerbox") {
                     this.volume = clamp(-Config.volumeRange / 2, (Config.volumeRange / 2) + 1, instrumentObject["volume"] | 0);
                 }
                 else {
@@ -5337,43 +5346,32 @@ var beepbox = (function (exports) {
                 return;
             }
             const variantTest = compressed.charCodeAt(charIndex);
-            let fromBeepBox;
-            let fromJummBox;
-            let fromGoldBox;
-            let fromUltraBox;
+            let fromBeepBox = false;
+            let fromJummBox = false;
+            let fromGoldBox = false;
+            let fromUltraBox = false;
             if (variantTest == 0x6A) {
-                fromBeepBox = false;
                 fromJummBox = true;
-                fromGoldBox = false;
-                fromUltraBox = false;
                 charIndex++;
             }
             else if (variantTest == 0x67) {
-                fromBeepBox = false;
-                fromJummBox = false;
                 fromGoldBox = true;
-                fromUltraBox = false;
                 charIndex++;
             }
             else if (variantTest == 0x75) {
-                fromBeepBox = false;
-                fromJummBox = false;
-                fromGoldBox = false;
                 fromUltraBox = true;
                 charIndex++;
             }
             else if (variantTest == 0x64) {
-                fromBeepBox = false;
                 fromJummBox = true;
-                fromGoldBox = false;
-                fromUltraBox = false;
+                charIndex++;
+            }
+            else if (variantTest == 0x4D) {
+                fromUltraBox = true;
                 charIndex++;
             }
             else {
                 fromBeepBox = true;
-                fromJummBox = false;
-                fromGoldBox = false;
-                fromUltraBox = false;
             }
             const version = base64CharCodeToInt[compressed.charCodeAt(charIndex++)];
             if (fromBeepBox && (version == -1 || version > Song._latestBeepboxVersion || version < Song._oldestBeepboxVersion))
@@ -8241,7 +8239,7 @@ var beepbox = (function (exports) {
     Song._latestGoldBoxVersion = 4;
     Song._oldestUltraBoxVersion = 1;
     Song._latestUltraBoxVersion = 5;
-    Song._variant = 0x75;
+    Song._variant = 0x4D;
     class PickedString {
         constructor() {
             this.delayLine = null;
@@ -8860,10 +8858,13 @@ var beepbox = (function (exports) {
             this.bitcrusherScaleScale = 1.0;
             this.bitcrusherFoldLevel = 1.0;
             this.bitcrusherFoldLevelScale = 1.0;
-            this.eqFilters = [];
+            this.eqFiltersL = [];
+            this.eqFiltersR = [];
             this.eqFilterCount = 0;
-            this.initialEqFilterInput1 = 0.0;
-            this.initialEqFilterInput2 = 0.0;
+            this.initialEqFilterInputL1 = 0.0;
+            this.initialEqFilterInputL2 = 0.0;
+            this.initialEqFilterInputR1 = 0.0;
+            this.initialEqFilterInputR2 = 0.0;
             this.panningDelayLineL = null;
             this.panningDelayLineR = null;
             this.panningDelayPos = 0;
@@ -8919,15 +8920,7 @@ var beepbox = (function (exports) {
             this.reverbShelfPrevInput3 = 0.0;
             this.volumeLinear = 100.0;
             this.volumeLinearDelta = 0.0;
-            this.postProcessOrder = [
-                2,
-                3,
-                4,
-                12,
-                1,
-                6,
-                0
-            ];
+            this.postProcessOrder = [...Config.defaultPostProcessOrder];
             this.spectrumWave = new SpectrumWaveState();
             this.harmonicsWave = new HarmonicsWaveState();
             this.drumsetSpectrumWaves = [];
@@ -8986,11 +8979,14 @@ var beepbox = (function (exports) {
             this.bitcrusherCurrentOutputR = 0.0;
             this.bitcrusherPhase = 1.0;
             for (let i = 0; i < this.eqFilterCount; i++) {
-                this.eqFilters[i].resetOutput();
+                this.eqFiltersL[i].resetOutput();
+                this.eqFiltersR[i].resetOutput();
             }
             this.eqFilterCount = 0;
-            this.initialEqFilterInput1 = 0.0;
-            this.initialEqFilterInput2 = 0.0;
+            this.initialEqFilterInputL1 = 0.0;
+            this.initialEqFilterInputL2 = 0.0;
+            this.initialEqFilterInputR1 = 0.0;
+            this.initialEqFilterInputR2 = 0.0;
             this.distortionFractionalInput1L = 0.0;
             this.distortionFractionalInput2L = 0.0;
             this.distortionFractionalInput3L = 0.0;
@@ -9061,6 +9057,7 @@ var beepbox = (function (exports) {
             this.chord = instrument.getChord();
             this.noisePitchFilterMult = Config.chipNoises[instrument.chipNoise].pitchFilterMult;
             this.effects = instrument.effects;
+            this.postProcessOrder = [...instrument.postProcessOrder];
             this.aliases = instrument.aliases;
             this.volumeScale = 1.0;
             this.allocateNecessaryBuffers(synth, instrument, samplesPerTick);
@@ -9159,17 +9156,23 @@ var beepbox = (function (exports) {
                     let endPoint = eqFilterSettingsEnd.controlPoints[0];
                     startPoint.toCoefficients(Synth.tempFilterStartCoefficients, samplesPerSecond, 1.0, 1.0);
                     endPoint.toCoefficients(Synth.tempFilterEndCoefficients, samplesPerSecond, 1.0, 1.0);
-                    if (this.eqFilters.length < 1)
-                        this.eqFilters[0] = new DynamicBiquadFilter();
-                    this.eqFilters[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersL.length < 1)
+                        this.eqFiltersL[0] = new DynamicBiquadFilter();
+                    this.eqFiltersL[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersR.length < 1)
+                        this.eqFiltersR[0] = new DynamicBiquadFilter();
+                    this.eqFiltersR[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
                 }
                 else {
                     eqFilterSettingsStart.convertLegacySettingsForSynth(startSimpleFreq, startSimpleGain, true);
                     startPoint = eqFilterSettingsStart.controlPoints[0];
                     startPoint.toCoefficients(Synth.tempFilterStartCoefficients, samplesPerSecond, 1.0, 1.0);
-                    if (this.eqFilters.length < 1)
-                        this.eqFilters[0] = new DynamicBiquadFilter();
-                    this.eqFilters[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterStartCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersL.length < 1)
+                        this.eqFiltersL[0] = new DynamicBiquadFilter();
+                    this.eqFiltersL[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterStartCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersR.length < 1)
+                        this.eqFiltersR[0] = new DynamicBiquadFilter();
+                    this.eqFiltersR[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterStartCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
                 }
                 eqFilterVolume *= startPoint.getVolumeCompensationMult();
                 this.eqFilterCount = 1;
@@ -9185,9 +9188,12 @@ var beepbox = (function (exports) {
                     }
                     startPoint.toCoefficients(Synth.tempFilterStartCoefficients, samplesPerSecond, 1.0, 1.0);
                     endPoint.toCoefficients(Synth.tempFilterEndCoefficients, samplesPerSecond, 1.0, 1.0);
-                    if (this.eqFilters.length <= i)
-                        this.eqFilters[i] = new DynamicBiquadFilter();
-                    this.eqFilters[i].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersL.length <= i)
+                        this.eqFiltersL[i] = new DynamicBiquadFilter();
+                    this.eqFiltersL[i].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersR.length <= i)
+                        this.eqFiltersR[i] = new DynamicBiquadFilter();
+                    this.eqFiltersR[i].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
                     eqFilterVolume *= startPoint.getVolumeCompensationMult();
                 }
                 this.eqFilterCount = eqFilterSettings.controlPointCount;
@@ -10001,6 +10007,7 @@ var beepbox = (function (exports) {
             this.tempFrequencyResponse = new FrequencyResponse();
             this.loopBarStart = -1;
             this.loopBarEnd = -1;
+            this.lastPostProcessOrder = [...Config.defaultPostProcessOrder];
             this.channels = [];
             this.tonePool = new Deque();
             this.tempMatchedPitchTones = Array(Config.maxChordSize).fill(null);
@@ -12866,8 +12873,14 @@ var beepbox = (function (exports) {
             signature = signature << 1;
             if (usesLinearVolume)
                 signature = signature | 1;
+            let samePostProcess = true;
+            for (var i in instrumentState.postProcessOrder) {
+                if (instrumentState.postProcessOrder[i] != synth.lastPostProcessOrder[i])
+                    samePostProcess = false;
+            }
             let effectsFunction = Synth.effectsFunctionCache[signature];
-            if (effectsFunction == undefined) {
+            if (effectsFunction == undefined || !samePostProcess) {
+                synth.lastPostProcessOrder = [...instrumentState.postProcessOrder];
                 let effectsSource = "return (synth, outputDataL, outputDataR, bufferIndex, runLength, instrumentState) => {";
                 const usesDelays = usesChorus || usesReverb || usesEcho;
                 let loadSource = "";
@@ -12882,6 +12895,15 @@ var beepbox = (function (exports) {
                     delay: `
 				let delayInputMult = +instrumentState.delayInputMult;
 				const delayInputMultDelta = +instrumentState.delayInputMultDelta;`,
+                    eqFilter: `
+				let filtersL = instrumentState.eqFiltersL;
+                let filtersR = instrumentState.eqFiltersR;
+				const filterCount = instrumentState.eqFilterCount|0;
+				let initialFilterInput1L = +instrumentState.initialEqFilterInput1L;
+				let initialFilterInput2L = +instrumentState.initialEqFilterInput2L;
+				let initialFilterInput1R = +instrumentState.initialEqFilterInput1R;
+				let initialFilterInput2R = +instrumentState.initialEqFilterInput2R;
+				const applyFilters = Synth.applyFilters;`,
                     [3]: `
 				const distortionBaseVolume = +Config.distortionBaseVolume;
 				let distortion = instrumentState.distortion;
@@ -12929,12 +12951,6 @@ var beepbox = (function (exports) {
                     let volumeLinear = +instrumentState.volumeLinear;
                     let volumeLinearDelta = +instrumentState.volumeLinearDelta;
                     let volumeLinearRange = +Config.volumeLinearRange;`,
-                    eqFilter: `
-				let filters = instrumentState.eqFilters;
-				const filterCount = instrumentState.eqFilterCount|0;
-				let initialFilterInput1 = +instrumentState.initialEqFilterInput1;
-				let initialFilterInput2 = +instrumentState.initialEqFilterInput2;
-				const applyFilters = Synth.applyFilters;`,
                     [2]: `
 				const panningMask = synth.panningDelayBufferMask >>> 0;
 				const panningDelayLineL = instrumentState.panningDelayLineL;
@@ -13048,6 +13064,15 @@ var beepbox = (function (exports) {
 				eqFilterVolume += eqFilterVolumeDelta;
                 let sampleL = sample;
                 let sampleR = sample;`,
+                    eqFilter: `
+                const inputSampleL = sampleL;
+                const inputSampleR = sampleR;
+                sampleL = applyFilters(inputSampleL, initialFilterInput1L, initialFilterInput2L, filterCount, filtersL);
+                sampleR = applyFilters(inputSampleR, initialFilterInput1R, initialFilterInput2R, filterCount, filtersR);
+                initialFilterInput2L = initialFilterInput1L;
+                initialFilterInput2R = initialFilterInput1R;
+                initialFilterInput1L = inputSampleL;
+                initialFilterInput1R = inputSampleR;`,
                     [3]: `
                 const distortionReverse = 1.0 - distortion;
                 const distortionNextInputL = sampleL * distortionDrive;
@@ -13074,7 +13099,8 @@ var beepbox = (function (exports) {
                 sampleL *= distortionOversampleCompensation;
                 sampleR += distortionOutput1R * distortionPrevOutputWeight1 + distortionOutput2R * distortionPrevOutputWeight2 + distortionOutput3R * distortionPrevOutputWeight3;
                 sampleR *= distortionOversampleCompensation;
-                distortionPrevInput = distortionNextInput;
+                distortionPrevInputL = distortionNextInputL;
+                distortionPrevInputR = distortionNextInputR;
                 distortion += distortionDelta;
                 distortionDrive += distortionDriveDelta;`,
                     [4]: `
@@ -13115,14 +13141,8 @@ var beepbox = (function (exports) {
                 bitcrusherFoldLevel *= bitcrusherFoldLevelScale;`,
                     [12]: `
                 volumeLinear += volumeLinearDelta;
-                sampleL *= sampleL * (volumeLinear / volumeLinearRange)
-                sampleR *= sampleR * (volumeLinear / volumeLinearRange)`,
-                    eqFilter: `
-                const inputSample = sample;
-                sampleL = applyFilters(inputSample, initialFilterInput1, initialFilterInput2, filterCount, filters);
-                sampleR = applyFilters(inputSample, initialFilterInput1, initialFilterInput2, filterCount, filters);
-                initialFilterInput2 = initialFilterInput1;
-                initialFilterInput1 = inputSample;`,
+                sampleL *= (volumeLinear / volumeLinearRange)
+                sampleR *= (volumeLinear / volumeLinearRange)`,
                     [2]: `
                 panningDelayLineL[panningDelayPos] = sampleL;
                 panningDelayLineR[panningDelayPos] = sampleR;
@@ -13293,17 +13313,24 @@ var beepbox = (function (exports) {
                     [12]: `
                 instrumentState.volumeLinear = volumeLinear;`,
                     eqFilter: `
-				synth.sanitizeFilters(filters);
+				synth.sanitizeFilters(filtersL);
+                synth.sanitizeFilters(filtersR);
 				// The filter input here is downstream from another filter so we
 				// better make sure it's safe too.
-				if (!(initialFilterInput1 < 100) || !(initialFilterInput2 < 100)) {
-					initialFilterInput1 = 0.0;
-					initialFilterInput2 = 0.0;
+				if (!(initialFilterInput1L < 100) || !(initialFilterInput2L < 100) || !(initialFilterInput1R < 100) || !(initialFilterInput2R < 100)) {
+					initialFilterInput1L = 0.0;
+					initialFilterInput2L = 0.0;
+                    initialFilterInput1R = 0.0;
+                    initialFilterInput2R = 0.0;
 				}
-				if (Math.abs(initialFilterInput1) < epsilon) initialFilterInput1 = 0.0;
-				if (Math.abs(initialFilterInput2) < epsilon) initialFilterInput2 = 0.0;
-				instrumentState.initialEqFilterInput1 = initialFilterInput1;
-				instrumentState.initialEqFilterInput2 = initialFilterInput2;`,
+				if (Math.abs(initialFilterInput1L) < epsilon) initialFilterInput1L = 0.0;
+				if (Math.abs(initialFilterInput2L) < epsilon) initialFilterInput2L = 0.0;
+                if (Math.abs(initialFilterInput1R) < epsilon) initialFilterInput1R = 0.0;
+				if (Math.abs(initialFilterInput2R) < epsilon) initialFilterInput2R = 0.0;
+                instrumentState.initialEqFilterInput1L = initialFilterInput1L;
+				instrumentState.initialEqFilterInput2L = initialFilterInput2L;
+                instrumentState.initialEqFilterInput1R = initialFilterInput1R;
+				instrumentState.initialEqFilterInput2R = initialFilterInput2R;`,
                     [2]: `
 				Synth.sanitizeDelayLine(panningDelayLineL, panningDelayPos, panningMask);
 				Synth.sanitizeDelayLine(panningDelayLineR, panningDelayPos, panningMask);
@@ -13370,11 +13397,6 @@ var beepbox = (function (exports) {
                     sampleSource += sampleStage.delay;
                     saveSource += saveStage.delay;
                 }
-                if (usesEqFilter) {
-                    loadSource += loadStage.eqFilter;
-                    sampleSource += sampleStage.eqFilter;
-                    saveSource += saveStage.eqFilter;
-                }
                 instrumentState.postProcessOrder.forEach((effectType) => {
                     if (!effectsIncludeEffectType(instrumentState.effects, effectType))
                         return;
@@ -13385,13 +13407,17 @@ var beepbox = (function (exports) {
                     if (effectType in saveStage)
                         saveSource += saveStage[effectType];
                 });
+                if (usesEqFilter) {
+                    loadSource += loadStage.eqFilter;
+                    sampleSource += sampleStage.eqFilter;
+                    saveSource += saveStage.eqFilter;
+                }
                 loadSource += loadStage.final;
                 sampleSource += sampleStage.final;
                 saveSource += saveStage.final;
                 effectsSource += loadSource;
                 effectsSource += sampleSource;
                 effectsSource += saveSource;
-                console.log(effectsSource);
                 effectsFunction = new Function("Config", "Synth", effectsSource)(Config, Synth);
                 Synth.effectsFunctionCache[signature] = effectsFunction;
             }
