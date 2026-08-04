@@ -1021,7 +1021,6 @@ var beepbox = (function (exports) {
         { name: "tempo", maxRawVol: Config.tempoMax - Config.tempoMin, newNoteVol: Math.ceil((Config.tempoMax - Config.tempoMin) / 2), forSong: true, convertRealFactor: Config.tempoMin, associatedEffect: 13 },
         { name: "song reverb", maxRawVol: Config.reverbRange * 2, newNoteVol: Config.reverbRange, forSong: true, convertRealFactor: -Config.reverbRange, associatedEffect: 13 },
         { name: "next bar", maxRawVol: 1, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
-        { name: "skip bars", maxRawVol: 20, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
         { name: "note volume", maxRawVol: Config.volumeRange, newNoteVol: Math.ceil(Config.volumeRange / 2), forSong: false, convertRealFactor: Math.ceil(-Config.volumeRange / 2.0), associatedEffect: 13 },
         { name: "pan", maxRawVol: Config.panMax, newNoteVol: Math.ceil(Config.panMax / 2), forSong: false, convertRealFactor: 0, associatedEffect: 2 },
         { name: "reverb", maxRawVol: Config.reverbRange, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 0 },
@@ -1062,6 +1061,7 @@ var beepbox = (function (exports) {
         { name: "spread", maxRawVol: Config.supersawSpreadMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
         { name: "saw shape", maxRawVol: Config.supersawShapeMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
         { name: "linear volume", maxRawVol: Config.volumeLinearRange, newNoteVol: Config.volumeLinearRange, forSong: false, convertRealFactor: 0, associatedEffect: 12 },
+        { name: "skip bars", maxRawVol: 20, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
     ]);
     function centerWave(wave) {
         let sum = 0.0;
