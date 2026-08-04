@@ -1376,6 +1376,9 @@ var beepbox = (function (exports) {
     function effectsIncludeVolumeLinear(effects) {
         return (effects & (1 << 12)) != 0;
     }
+    function effectsIncludeEffectType(effects, effectType) {
+        return (effects & (1 << effectType)) != 0;
+    }
     function rawChipToIntegrated(raw) {
         const newArray = new Array(raw.length);
         const dictionary = {};
@@ -3258,6 +3261,15 @@ var beepbox = (function (exports) {
             this.modulators = [];
             this.modFilterTypes = [];
             this.invalidModulators = [];
+            this.postProcessOrder = [
+                3,
+                4,
+                12,
+                2,
+                1,
+                6,
+                0
+            ];
             if (isModChannel) {
                 for (let mod = 0; mod < Config.modCount; mod++) {
                     this.modChannels.push(-2);
@@ -8827,13 +8839,20 @@ var beepbox = (function (exports) {
             this.distortionDelta = 0.0;
             this.distortionDrive = 0.0;
             this.distortionDriveDelta = 0.0;
-            this.distortionFractionalInput1 = 0.0;
-            this.distortionFractionalInput2 = 0.0;
-            this.distortionFractionalInput3 = 0.0;
-            this.distortionPrevInput = 0.0;
-            this.distortionNextOutput = 0.0;
-            this.bitcrusherPrevInput = 0.0;
-            this.bitcrusherCurrentOutput = 0.0;
+            this.distortionFractionalInput1L = 0.0;
+            this.distortionFractionalInput2L = 0.0;
+            this.distortionFractionalInput3L = 0.0;
+            this.distortionFractionalInput1R = 0.0;
+            this.distortionFractionalInput2R = 0.0;
+            this.distortionFractionalInput3R = 0.0;
+            this.distortionPrevInputL = 0.0;
+            this.distortionPrevInputR = 0.0;
+            this.distortionNextOutputL = 0.0;
+            this.distortionNextOutputR = 0.0;
+            this.bitcrusherPrevInputL = 0.0;
+            this.bitcrusherPrevInputR = 0.0;
+            this.bitcrusherCurrentOutputL = 0.0;
+            this.bitcrusherCurrentOutputR = 0.0;
             this.bitcrusherPhase = 1.0;
             this.bitcrusherPhaseDelta = 0.0;
             this.bitcrusherPhaseDeltaScale = 1.0;
@@ -8845,7 +8864,8 @@ var beepbox = (function (exports) {
             this.eqFilterCount = 0;
             this.initialEqFilterInput1 = 0.0;
             this.initialEqFilterInput2 = 0.0;
-            this.panningDelayLine = null;
+            this.panningDelayLineL = null;
+            this.panningDelayLineR = null;
             this.panningDelayPos = 0;
             this.panningVolumeL = 0.0;
             this.panningVolumeR = 0.0;
@@ -8899,6 +8919,15 @@ var beepbox = (function (exports) {
             this.reverbShelfPrevInput3 = 0.0;
             this.volumeLinear = 100.0;
             this.volumeLinearDelta = 0.0;
+            this.postProcessOrder = [
+                2,
+                3,
+                4,
+                12,
+                1,
+                6,
+                0
+            ];
             this.spectrumWave = new SpectrumWaveState();
             this.harmonicsWave = new HarmonicsWaveState();
             this.drumsetSpectrumWaves = [];
@@ -8908,8 +8937,11 @@ var beepbox = (function (exports) {
         }
         allocateNecessaryBuffers(synth, instrument, samplesPerTick) {
             if (effectsIncludePanning(instrument.effects)) {
-                if (this.panningDelayLine == null || this.panningDelayLine.length < synth.panningDelayBufferSize) {
-                    this.panningDelayLine = new Float32Array(synth.panningDelayBufferSize);
+                if (this.panningDelayLineL == null || this.panningDelayLineL.length < synth.panningDelayBufferSize) {
+                    this.panningDelayLineL = new Float32Array(synth.panningDelayBufferSize);
+                }
+                if (this.panningDelayLineR == null || this.panningDelayLineR.length < synth.panningDelayBufferSize) {
+                    this.panningDelayLineR = new Float32Array(synth.panningDelayBufferSize);
                 }
             }
             if (effectsIncludeChorus(instrument.effects)) {
@@ -8948,8 +8980,10 @@ var beepbox = (function (exports) {
             }
         }
         deactivate() {
-            this.bitcrusherPrevInput = 0.0;
-            this.bitcrusherCurrentOutput = 0.0;
+            this.bitcrusherPrevInputL = 0.0;
+            this.bitcrusherPrevInputR = 0.0;
+            this.bitcrusherCurrentOutputL = 0.0;
+            this.bitcrusherCurrentOutputR = 0.0;
             this.bitcrusherPhase = 1.0;
             for (let i = 0; i < this.eqFilterCount; i++) {
                 this.eqFilters[i].resetOutput();
@@ -8957,15 +8991,23 @@ var beepbox = (function (exports) {
             this.eqFilterCount = 0;
             this.initialEqFilterInput1 = 0.0;
             this.initialEqFilterInput2 = 0.0;
-            this.distortionFractionalInput1 = 0.0;
-            this.distortionFractionalInput2 = 0.0;
-            this.distortionFractionalInput3 = 0.0;
-            this.distortionPrevInput = 0.0;
-            this.distortionNextOutput = 0.0;
+            this.distortionFractionalInput1L = 0.0;
+            this.distortionFractionalInput2L = 0.0;
+            this.distortionFractionalInput3L = 0.0;
+            this.distortionFractionalInput1R = 0.0;
+            this.distortionFractionalInput2R = 0.0;
+            this.distortionFractionalInput3R = 0.0;
+            this.distortionPrevInputL = 0.0;
+            this.distortionNextOutputL = 0.0;
+            this.distortionPrevInputR = 0.0;
+            this.distortionNextOutputR = 0.0;
             this.panningDelayPos = 0;
-            if (this.panningDelayLine != null)
-                for (let i = 0; i < this.panningDelayLine.length; i++)
-                    this.panningDelayLine[i] = 0.0;
+            if (this.panningDelayLineL != null)
+                for (let i = 0; i < this.panningDelayLineL.length; i++)
+                    this.panningDelayLineL[i] = 0.0;
+            if (this.panningDelayLineR != null)
+                for (let i = 0; i < this.panningDelayLineR.length; i++)
+                    this.panningDelayLineR[i] = 0.0;
             this.echoDelayOffsetEnd = null;
             this.echoShelfSampleL = 0.0;
             this.echoShelfSampleR = 0.0;
@@ -12828,20 +12870,19 @@ var beepbox = (function (exports) {
             if (effectsFunction == undefined) {
                 let effectsSource = "return (synth, outputDataL, outputDataR, bufferIndex, runLength, instrumentState) => {";
                 const usesDelays = usesChorus || usesReverb || usesEcho;
-                effectsSource += `
+                let loadSource = "";
+                let sampleSource = "";
+                let saveSource = "";
+                const loadStage = {
+                    init: `
 				const tempMonoInstrumentSampleBuffer = synth.tempMonoInstrumentSampleBuffer;
 				
 				let mixVolume = +instrumentState.mixVolume;
-				const mixVolumeDelta = +instrumentState.mixVolumeDelta;`;
-                if (usesDelays) {
-                    effectsSource += `
-				
+				const mixVolumeDelta = +instrumentState.mixVolumeDelta;`,
+                    delay: `
 				let delayInputMult = +instrumentState.delayInputMult;
-				const delayInputMultDelta = +instrumentState.delayInputMultDelta;`;
-                }
-                if (usesDistortion) {
-                    effectsSource += `
-				
+				const delayInputMultDelta = +instrumentState.delayInputMultDelta;`,
+                    [3]: `
 				const distortionBaseVolume = +Config.distortionBaseVolume;
 				let distortion = instrumentState.distortion;
 				const distortionDelta = instrumentState.distortionDelta;
@@ -12861,51 +12902,43 @@ var beepbox = (function (exports) {
 				const distortionPrevOutputWeight1 = 1.0 - distortionNextOutputWeight1;
 				const distortionPrevOutputWeight2 = 1.0 - distortionNextOutputWeight2;
 				const distortionPrevOutputWeight3 = 1.0 - distortionNextOutputWeight3;
-				
-				let distortionFractionalInput1 = +instrumentState.distortionFractionalInput1;
-				let distortionFractionalInput2 = +instrumentState.distortionFractionalInput2;
-				let distortionFractionalInput3 = +instrumentState.distortionFractionalInput3;
-				let distortionPrevInput = +instrumentState.distortionPrevInput;
-				let distortionNextOutput = +instrumentState.distortionNextOutput;`;
-                }
-                if (usesBitcrusher) {
-                    effectsSource += `
-				
-				let bitcrusherPrevInput = +instrumentState.bitcrusherPrevInput;
-				let bitcrusherCurrentOutput = +instrumentState.bitcrusherCurrentOutput;
+
+				let distortionFractionalInput1L = +instrumentState.distortionFractionalInput1L;
+				let distortionFractionalInput2L = +instrumentState.distortionFractionalInput2L;
+				let distortionFractionalInput3L = +instrumentState.distortionFractionalInput3L;
+				let distortionFractionalInput1R = +instrumentState.distortionFractionalInput1R;
+				let distortionFractionalInput2R = +instrumentState.distortionFractionalInput2R;
+				let distortionFractionalInput3R = +instrumentState.distortionFractionalInput3R;
+				let distortionPrevInputL = +instrumentState.distortionPrevInputL;
+                let distortionPrevInputR = +instrumentState.distortionPrevInputR;
+				let distortionNextOutputL = +instrumentState.distortionNextOutputL;
+                let distortionNextOutputR = +instrumentState.distortionNextOutputR;`,
+                    [4]: `
+				let bitcrusherPrevInputL = +instrumentState.bitcrusherPrevInputL;
+				let bitcrusherCurrentOutputL = +instrumentState.bitcrusherCurrentOutputL;
+				let bitcrusherPrevInputR = +instrumentState.bitcrusherPrevInputR;
+				let bitcrusherCurrentOutputR = +instrumentState.bitcrusherCurrentOutputR;
 				let bitcrusherPhase = +instrumentState.bitcrusherPhase;
 				let bitcrusherPhaseDelta = +instrumentState.bitcrusherPhaseDelta;
 				const bitcrusherPhaseDeltaScale = +instrumentState.bitcrusherPhaseDeltaScale;
 				let bitcrusherScale = +instrumentState.bitcrusherScale;
 				const bitcrusherScaleScale = +instrumentState.bitcrusherScaleScale;
 				let bitcrusherFoldLevel = +instrumentState.bitcrusherFoldLevel;
-				const bitcrusherFoldLevelScale = +instrumentState.bitcrusherFoldLevelScale;`;
-                }
-                if (usesLinearVolume) {
-                    effectsSource += `
+				const bitcrusherFoldLevelScale = +instrumentState.bitcrusherFoldLevelScale;`,
+                    [12]: `
                     let volumeLinear = +instrumentState.volumeLinear;
                     let volumeLinearDelta = +instrumentState.volumeLinearDelta;
-                    let volumeLinearRange = +Config.volumeLinearRange;
-                `;
-                }
-                if (usesEqFilter) {
-                    effectsSource += `
-				
+                    let volumeLinearRange = +Config.volumeLinearRange;`,
+                    eqFilter: `
 				let filters = instrumentState.eqFilters;
 				const filterCount = instrumentState.eqFilterCount|0;
 				let initialFilterInput1 = +instrumentState.initialEqFilterInput1;
 				let initialFilterInput2 = +instrumentState.initialEqFilterInput2;
-				const applyFilters = Synth.applyFilters;`;
-                }
-                effectsSource += `
-				
-				let eqFilterVolume = +instrumentState.eqFilterVolume;
-				const eqFilterVolumeDelta = +instrumentState.eqFilterVolumeDelta;`;
-                if (usesPanning) {
-                    effectsSource += `
-				
+				const applyFilters = Synth.applyFilters;`,
+                    [2]: `
 				const panningMask = synth.panningDelayBufferMask >>> 0;
-				const panningDelayLine = instrumentState.panningDelayLine;
+				const panningDelayLineL = instrumentState.panningDelayLineL;
+                const panningDelayLineR = instrumentState.panningDelayLineR;
 				let panningDelayPos = instrumentState.panningDelayPos & panningMask;
 				let   panningVolumeL      = +instrumentState.panningVolumeL;
 				let   panningVolumeR      = +instrumentState.panningVolumeR;
@@ -12914,11 +12947,8 @@ var beepbox = (function (exports) {
 				let   panningOffsetL      = +instrumentState.panningOffsetL;
 				let   panningOffsetR      = +instrumentState.panningOffsetR;
 				const panningOffsetDeltaL = 1.0 - instrumentState.panningOffsetDeltaL;
-				const panningOffsetDeltaR = 1.0 - instrumentState.panningOffsetDeltaR;`;
-                }
-                if (usesChorus) {
-                    effectsSource += `
-				
+				const panningOffsetDeltaR = 1.0 - instrumentState.panningOffsetDeltaR;`,
+                    [1]: `
 				const chorusMask = synth.chorusDelayBufferMask >>> 0;
 				const chorusDelayLineL = instrumentState.chorusDelayLineL;
 				const chorusDelayLineR = instrumentState.chorusDelayLineR;
@@ -12958,11 +12988,8 @@ var beepbox = (function (exports) {
 				const chorusTap2Delta = (chorusTap2End - chorusTap2Index) / runLength;
 				const chorusTap3Delta = (chorusTap3End - chorusTap3Index) / runLength;
 				const chorusTap4Delta = (chorusTap4End - chorusTap4Index) / runLength;
-				const chorusTap5Delta = (chorusTap5End - chorusTap5Index) / runLength;`;
-                }
-                if (usesEcho) {
-                    effectsSource += `
-				
+				const chorusTap5Delta = (chorusTap5End - chorusTap5Index) / runLength;`,
+                    [6]: `
 				let echoMult = +instrumentState.echoMult;
 				const echoMultDelta = +instrumentState.echoMultDelta;
 				
@@ -12983,11 +13010,8 @@ var beepbox = (function (exports) {
 				let echoShelfSampleL = +instrumentState.echoShelfSampleL;
 				let echoShelfSampleR = +instrumentState.echoShelfSampleR;
 				let echoShelfPrevInputL = +instrumentState.echoShelfPrevInputL;
-				let echoShelfPrevInputR = +instrumentState.echoShelfPrevInputR;`;
-                }
-                if (usesReverb) {
-                    effectsSource += `
-				
+				let echoShelfPrevInputR = +instrumentState.echoShelfPrevInputR;`,
+                    [0]: `
 				const reverbMask = Config.reverbDelayBufferMask >>> 0; //TODO: Dynamic reverb buffer size.
 				const reverbDelayLine = instrumentState.reverbDelayLine;
 				instrumentState.reverbDelayLineDirty = true;
@@ -13006,273 +13030,269 @@ var beepbox = (function (exports) {
 				let reverbShelfPrevInput0 = +instrumentState.reverbShelfPrevInput0;
 				let reverbShelfPrevInput1 = +instrumentState.reverbShelfPrevInput1;
 				let reverbShelfPrevInput2 = +instrumentState.reverbShelfPrevInput2;
-				let reverbShelfPrevInput3 = +instrumentState.reverbShelfPrevInput3;`;
-                }
-                effectsSource += `
-				
+				let reverbShelfPrevInput3 = +instrumentState.reverbShelfPrevInput3;`,
+                    final: `
+                // The eq filter volume is also used to fade out the instrument state, so always include it.
+                let eqFilterVolume = +instrumentState.eqFilterVolume;
+				const eqFilterVolumeDelta = +instrumentState.eqFilterVolumeDelta;`,
+                };
+                const sampleStage = {
+                    init: `
 				const stopIndex = bufferIndex + runLength;
 				for (let sampleIndex = bufferIndex; sampleIndex < stopIndex; sampleIndex++) {
 					let sample = tempMonoInstrumentSampleBuffer[sampleIndex];
-					tempMonoInstrumentSampleBuffer[sampleIndex] = 0.0;`;
-                if (usesDistortion) {
-                    effectsSource += `
-					
-					const distortionReverse = 1.0 - distortion;
-					const distortionNextInput = sample * distortionDrive;
-					sample = distortionNextOutput;
-					distortionNextOutput = distortionNextInput / (distortionReverse * Math.abs(distortionNextInput) + distortion);
-					distortionFractionalInput1 = distortionFractionalDelayG1 * distortionNextInput + distortionPrevInput - distortionFractionalDelayG1 * distortionFractionalInput1;
-					distortionFractionalInput2 = distortionFractionalDelayG2 * distortionNextInput + distortionPrevInput - distortionFractionalDelayG2 * distortionFractionalInput2;
-					distortionFractionalInput3 = distortionFractionalDelayG3 * distortionNextInput + distortionPrevInput - distortionFractionalDelayG3 * distortionFractionalInput3;
-					const distortionOutput1 = distortionFractionalInput1 / (distortionReverse * Math.abs(distortionFractionalInput1) + distortion);
-					const distortionOutput2 = distortionFractionalInput2 / (distortionReverse * Math.abs(distortionFractionalInput2) + distortion);
-					const distortionOutput3 = distortionFractionalInput3 / (distortionReverse * Math.abs(distortionFractionalInput3) + distortion);
-					distortionNextOutput += distortionOutput1 * distortionNextOutputWeight1 + distortionOutput2 * distortionNextOutputWeight2 + distortionOutput3 * distortionNextOutputWeight3;
-					sample += distortionOutput1 * distortionPrevOutputWeight1 + distortionOutput2 * distortionPrevOutputWeight2 + distortionOutput3 * distortionPrevOutputWeight3;
-					sample *= distortionOversampleCompensation;
-					distortionPrevInput = distortionNextInput;
-					distortion += distortionDelta;
-					distortionDrive += distortionDriveDelta;`;
+					tempMonoInstrumentSampleBuffer[sampleIndex] = 0.0;
+                // The eq filter volume is also used to fade out the instrument state, so always include it.
+                //Also, this might mess with the sound? If it does I'll include a different stage for the required EQ, probably.
+                sample *= eqFilterVolume;
+				eqFilterVolume += eqFilterVolumeDelta;
+                let sampleL = sample;
+                let sampleR = sample;`,
+                    [3]: `
+                const distortionReverse = 1.0 - distortion;
+                const distortionNextInputL = sampleL * distortionDrive;
+                const distortionNextInputR = sampleR * distortionDrive;
+                sampleL = distortionNextOutputL;
+                sampleR = distortionNextOutputR;
+                distortionNextOutputL = distortionNextInputL / (distortionReverse * Math.abs(distortionNextInputL) + distortion);
+                distortionNextOutputR = distortionNextInputR / (distortionReverse * Math.abs(distortionNextInputR) + distortion);
+                distortionFractionalInput1L = distortionFractionalDelayG1 * distortionNextInputL + distortionPrevInputL - distortionFractionalDelayG1 * distortionFractionalInput1L;
+                distortionFractionalInput2L = distortionFractionalDelayG2 * distortionNextInputL + distortionPrevInputL - distortionFractionalDelayG2 * distortionFractionalInput2L;
+                distortionFractionalInput3L = distortionFractionalDelayG3 * distortionNextInputL + distortionPrevInputL - distortionFractionalDelayG3 * distortionFractionalInput3L;
+                distortionFractionalInput1R = distortionFractionalDelayG1 * distortionNextInputR + distortionPrevInputR - distortionFractionalDelayG1 * distortionFractionalInput1R;
+                distortionFractionalInput2R = distortionFractionalDelayG2 * distortionNextInputR + distortionPrevInputR - distortionFractionalDelayG2 * distortionFractionalInput2R;
+                distortionFractionalInput3R = distortionFractionalDelayG3 * distortionNextInputR + distortionPrevInputR - distortionFractionalDelayG3 * distortionFractionalInput3R;
+                const distortionOutput1L = distortionFractionalInput1L / (distortionReverse * Math.abs(distortionFractionalInput1L) + distortion);
+                const distortionOutput2L = distortionFractionalInput2L / (distortionReverse * Math.abs(distortionFractionalInput2L) + distortion);
+                const distortionOutput3L = distortionFractionalInput3L / (distortionReverse * Math.abs(distortionFractionalInput3L) + distortion);
+                const distortionOutput1R = distortionFractionalInput1R / (distortionReverse * Math.abs(distortionFractionalInput1R) + distortion);
+                const distortionOutput2R = distortionFractionalInput2R / (distortionReverse * Math.abs(distortionFractionalInput2R) + distortion);
+                const distortionOutput3R = distortionFractionalInput3R / (distortionReverse * Math.abs(distortionFractionalInput3R) + distortion);
+                distortionNextOutputL += distortionOutput1L * distortionNextOutputWeight1 + distortionOutput2L * distortionNextOutputWeight2 + distortionOutput3L * distortionNextOutputWeight3;
+                distortionNextOutputR += distortionOutput1R * distortionNextOutputWeight1 + distortionOutput2R * distortionNextOutputWeight2 + distortionOutput3R * distortionNextOutputWeight3;
+                sampleL += distortionOutput1L * distortionPrevOutputWeight1 + distortionOutput2L * distortionPrevOutputWeight2 + distortionOutput3L * distortionPrevOutputWeight3;
+                sampleL *= distortionOversampleCompensation;
+                sampleR += distortionOutput1R * distortionPrevOutputWeight1 + distortionOutput2R * distortionPrevOutputWeight2 + distortionOutput3R * distortionPrevOutputWeight3;
+                sampleR *= distortionOversampleCompensation;
+                distortionPrevInput = distortionNextInput;
+                distortion += distortionDelta;
+                distortionDrive += distortionDriveDelta;`,
+                    [4]: `
+                bitcrusherPhase += bitcrusherPhaseDelta;
+                if (bitcrusherPhase < 1.0) {
+                    bitcrusherPrevInputL = sampleL;
+                    bitcrusherPrevInputR = sampleR;
+                    sampleL = bitcrusherCurrentOutputL;
+                    sampleR = bitcrusherCurrentOutputR;
+                } else {
+                    bitcrusherPhase = bitcrusherPhase % 1.0;
+                    const ratio = bitcrusherPhase / bitcrusherPhaseDelta;
+                    
+                    const lerpedInputL = sampleL + (bitcrusherPrevInputL - sampleL) * ratio;
+                    const lerpedInputR = sampleR + (bitcrusherPrevInputR - sampleR) * ratio;
+                    bitcrusherPrevInputL = sampleL;
+                    bitcrusherPrevInputR = sampleR;
+                    
+                    const bitcrusherWrapLevel = bitcrusherFoldLevel * 4.0;
+                    const wrappedSampleL = (((lerpedInputL + bitcrusherFoldLevel) % bitcrusherWrapLevel) + bitcrusherWrapLevel) % bitcrusherWrapLevel;
+                    const wrappedSampleR = (((lerpedInputR + bitcrusherFoldLevel) % bitcrusherWrapLevel) + bitcrusherWrapLevel) % bitcrusherWrapLevel;
+                    const foldedSampleL = bitcrusherFoldLevel - Math.abs(bitcrusherFoldLevel * 2.0 - wrappedSampleL);
+                    const foldedSampleR = bitcrusherFoldLevel - Math.abs(bitcrusherFoldLevel * 2.0 - wrappedSampleR);
+                    const scaledSampleL = foldedSampleL / bitcrusherScale;
+                    const scaledSampleR = foldedSampleR / bitcrusherScale;
+                    const oldValueL = bitcrusherCurrentOutputL;
+                    const newValueL = (((scaledSampleL > 0 ? scaledSampleL + 1 : scaledSampleL)|0)-.5) * bitcrusherScale;
+                    const oldValueR = bitcrusherCurrentOutputR;
+                    const newValueR = (((scaledSampleR > 0 ? scaledSampleR + 1 : scaledSampleR)|0)-.5) * bitcrusherScale;
+                    
+                    sampleL = oldValueL + (newValueL - oldValueL) * ratio;
+                    sampleR = oldValueR + (newValueR - oldValueR) * ratio;
+                    bitcrusherCurrentOutputL = newValueL;
+                    bitcrusherCurrentOutputR = newValueR;
                 }
-                if (usesBitcrusher) {
-                    effectsSource += `
-					
-					bitcrusherPhase += bitcrusherPhaseDelta;
-					if (bitcrusherPhase < 1.0) {
-						bitcrusherPrevInput = sample;
-						sample = bitcrusherCurrentOutput;
-					} else {
-						bitcrusherPhase = bitcrusherPhase % 1.0;
-						const ratio = bitcrusherPhase / bitcrusherPhaseDelta;
-						
-						const lerpedInput = sample + (bitcrusherPrevInput - sample) * ratio;
-						bitcrusherPrevInput = sample;
-						
-						const bitcrusherWrapLevel = bitcrusherFoldLevel * 4.0;
-						const wrappedSample = (((lerpedInput + bitcrusherFoldLevel) % bitcrusherWrapLevel) + bitcrusherWrapLevel) % bitcrusherWrapLevel;
-						const foldedSample = bitcrusherFoldLevel - Math.abs(bitcrusherFoldLevel * 2.0 - wrappedSample);
-						const scaledSample = foldedSample / bitcrusherScale;
-						const oldValue = bitcrusherCurrentOutput;
-						const newValue = (((scaledSample > 0 ? scaledSample + 1 : scaledSample)|0)-.5) * bitcrusherScale;
-						
-						sample = oldValue + (newValue - oldValue) * ratio;
-						bitcrusherCurrentOutput = newValue;
-					}
-					bitcrusherPhaseDelta *= bitcrusherPhaseDeltaScale;
-					bitcrusherScale *= bitcrusherScaleScale;
-					bitcrusherFoldLevel *= bitcrusherFoldLevelScale;`;
-                }
-                if (usesLinearVolume) {
-                    effectsSource += `
-                    volumeLinear += volumeLinearDelta;
-                    sample = sample * (volumeLinear / volumeLinearRange)
-                `;
-                }
-                if (usesEqFilter) {
-                    effectsSource += `
-					
-					const inputSample = sample;
-					sample = applyFilters(inputSample, initialFilterInput1, initialFilterInput2, filterCount, filters);
-					initialFilterInput2 = initialFilterInput1;
-					initialFilterInput1 = inputSample;`;
-                }
-                effectsSource += `
-					
-					sample *= eqFilterVolume;
-					eqFilterVolume += eqFilterVolumeDelta;`;
-                if (usesPanning) {
-                    effectsSource += `
-					
-					panningDelayLine[panningDelayPos] = sample;
-					const panningRatioL  = panningOffsetL % 1;
-					const panningRatioR  = panningOffsetR % 1;
-					const panningTapLA   = panningDelayLine[(panningOffsetL) & panningMask];
-					const panningTapLB   = panningDelayLine[(panningOffsetL + 1) & panningMask];
-					const panningTapRA   = panningDelayLine[(panningOffsetR) & panningMask];
-					const panningTapRB   = panningDelayLine[(panningOffsetR + 1) & panningMask];
-					const panningTapL    = panningTapLA + (panningTapLB - panningTapLA) * panningRatioL;
-					const panningTapR    = panningTapRA + (panningTapRB - panningTapRA) * panningRatioR;
-					let sampleL = panningTapL * panningVolumeL;
-					let sampleR = panningTapR * panningVolumeR;
-					panningDelayPos = (panningDelayPos + 1) & panningMask;
-					panningVolumeL += panningVolumeDeltaL;
-					panningVolumeR += panningVolumeDeltaR;
-					panningOffsetL += panningOffsetDeltaL;
-					panningOffsetR += panningOffsetDeltaR;`;
-                }
-                else {
-                    effectsSource += `
-					
-					let sampleL = sample;
-					let sampleR = sample;`;
-                }
-                if (usesChorus) {
-                    effectsSource += `
-					
-					const chorusTap0Ratio = chorusTap0Index % 1;
-					const chorusTap1Ratio = chorusTap1Index % 1;
-					const chorusTap2Ratio = chorusTap2Index % 1;
-					const chorusTap3Ratio = chorusTap3Index % 1;
-					const chorusTap4Ratio = chorusTap4Index % 1;
-					const chorusTap5Ratio = chorusTap5Index % 1;
-					const chorusTap0A = chorusDelayLineL[(chorusTap0Index) & chorusMask];
-					const chorusTap0B = chorusDelayLineL[(chorusTap0Index + 1) & chorusMask];
-					const chorusTap1A = chorusDelayLineL[(chorusTap1Index) & chorusMask];
-					const chorusTap1B = chorusDelayLineL[(chorusTap1Index + 1) & chorusMask];
-					const chorusTap2A = chorusDelayLineL[(chorusTap2Index) & chorusMask];
-					const chorusTap2B = chorusDelayLineL[(chorusTap2Index + 1) & chorusMask];
-					const chorusTap3A = chorusDelayLineR[(chorusTap3Index) & chorusMask];
-					const chorusTap3B = chorusDelayLineR[(chorusTap3Index + 1) & chorusMask];
-					const chorusTap4A = chorusDelayLineR[(chorusTap4Index) & chorusMask];
-					const chorusTap4B = chorusDelayLineR[(chorusTap4Index + 1) & chorusMask];
-					const chorusTap5A = chorusDelayLineR[(chorusTap5Index) & chorusMask];
-					const chorusTap5B = chorusDelayLineR[(chorusTap5Index + 1) & chorusMask];
-					const chorusTap0 = chorusTap0A + (chorusTap0B - chorusTap0A) * chorusTap0Ratio;
-					const chorusTap1 = chorusTap1A + (chorusTap1B - chorusTap1A) * chorusTap1Ratio;
-					const chorusTap2 = chorusTap2A + (chorusTap2B - chorusTap2A) * chorusTap2Ratio;
-					const chorusTap3 = chorusTap3A + (chorusTap3B - chorusTap3A) * chorusTap3Ratio;
-					const chorusTap4 = chorusTap4A + (chorusTap4B - chorusTap4A) * chorusTap4Ratio;
-					const chorusTap5 = chorusTap5A + (chorusTap5B - chorusTap5A) * chorusTap5Ratio;
-					chorusDelayLineL[chorusDelayPos] = sampleL * delayInputMult;
-					chorusDelayLineR[chorusDelayPos] = sampleR * delayInputMult;
-					sampleL = chorusCombinedMult * (sampleL + chorusVoiceMult * (chorusTap1 - chorusTap0 - chorusTap2));
-					sampleR = chorusCombinedMult * (sampleR + chorusVoiceMult * (chorusTap4 - chorusTap3 - chorusTap5));
-					chorusDelayPos = (chorusDelayPos + 1) & chorusMask;
-					chorusTap0Index += chorusTap0Delta;
-					chorusTap1Index += chorusTap1Delta;
-					chorusTap2Index += chorusTap2Delta;
-					chorusTap3Index += chorusTap3Delta;
-					chorusTap4Index += chorusTap4Delta;
-					chorusTap5Index += chorusTap5Delta;
-					chorusVoiceMult += chorusVoiceMultDelta;
-					chorusCombinedMult += chorusCombinedMultDelta;`;
-                }
-                if (usesEcho) {
-                    effectsSource += `
-					
-					const echoTapStartIndex = (echoDelayPos + echoDelayOffsetStart) & echoMask;
-					const echoTapEndIndex   = (echoDelayPos + echoDelayOffsetEnd  ) & echoMask;
-					const echoTapStartL = echoDelayLineL[echoTapStartIndex];
-					const echoTapEndL   = echoDelayLineL[echoTapEndIndex];
-					const echoTapStartR = echoDelayLineR[echoTapStartIndex];
-					const echoTapEndR   = echoDelayLineR[echoTapEndIndex];
-					const echoTapL = (echoTapStartL + (echoTapEndL - echoTapStartL) * echoDelayOffsetRatio) * echoMult;
-					const echoTapR = (echoTapStartR + (echoTapEndR - echoTapStartR) * echoDelayOffsetRatio) * echoMult;
-					
-					echoShelfSampleL = echoShelfB0 * echoTapL + echoShelfB1 * echoShelfPrevInputL - echoShelfA1 * echoShelfSampleL;
-					echoShelfSampleR = echoShelfB0 * echoTapR + echoShelfB1 * echoShelfPrevInputR - echoShelfA1 * echoShelfSampleR;
-					echoShelfPrevInputL = echoTapL;
-					echoShelfPrevInputR = echoTapR;
-					sampleL += echoShelfSampleL;
-					sampleR += echoShelfSampleR;
-					
-					echoDelayLineL[echoDelayPos] = sampleL * delayInputMult;
-					echoDelayLineR[echoDelayPos] = sampleR * delayInputMult;
-					echoDelayPos = (echoDelayPos + 1) & echoMask;
-					echoDelayOffsetRatio += echoDelayOffsetRatioDelta;
-					echoMult += echoMultDelta;
-                    `;
-                }
-                if (usesReverb) {
-                    effectsSource += `
-					
-					// Reverb, implemented using a feedback delay network with a Hadamard matrix and lowpass filters.
-					// good ratios:    0.555235 + 0.618033 + 0.818 +   1.0 = 2.991268
-					// Delay lengths:  3041     + 3385     + 4481  +  5477 = 16384 = 2^14
-					// Buffer offsets: 3041    -> 6426   -> 10907 -> 16384
-					const reverbDelayPos1 = (reverbDelayPos +  3041) & reverbMask;
-					const reverbDelayPos2 = (reverbDelayPos +  6426) & reverbMask;
-					const reverbDelayPos3 = (reverbDelayPos + 10907) & reverbMask;
-					const reverbSample0 = (reverbDelayLine[reverbDelayPos]);
-					const reverbSample1 = reverbDelayLine[reverbDelayPos1];
-					const reverbSample2 = reverbDelayLine[reverbDelayPos2];
-					const reverbSample3 = reverbDelayLine[reverbDelayPos3];
-					const reverbTemp0 = -(reverbSample0 + sampleL) + reverbSample1;
-					const reverbTemp1 = -(reverbSample0 + sampleR) - reverbSample1;
-					const reverbTemp2 = -reverbSample2 + reverbSample3;
-					const reverbTemp3 = -reverbSample2 - reverbSample3;
-					const reverbShelfInput0 = (reverbTemp0 + reverbTemp2) * reverb;
-					const reverbShelfInput1 = (reverbTemp1 + reverbTemp3) * reverb;
-					const reverbShelfInput2 = (reverbTemp0 - reverbTemp2) * reverb;
-					const reverbShelfInput3 = (reverbTemp1 - reverbTemp3) * reverb;
-					reverbShelfSample0 = reverbShelfB0 * reverbShelfInput0 + reverbShelfB1 * reverbShelfPrevInput0 - reverbShelfA1 * reverbShelfSample0;
-					reverbShelfSample1 = reverbShelfB0 * reverbShelfInput1 + reverbShelfB1 * reverbShelfPrevInput1 - reverbShelfA1 * reverbShelfSample1;
-					reverbShelfSample2 = reverbShelfB0 * reverbShelfInput2 + reverbShelfB1 * reverbShelfPrevInput2 - reverbShelfA1 * reverbShelfSample2;
-					reverbShelfSample3 = reverbShelfB0 * reverbShelfInput3 + reverbShelfB1 * reverbShelfPrevInput3 - reverbShelfA1 * reverbShelfSample3;
-					reverbShelfPrevInput0 = reverbShelfInput0;
-					reverbShelfPrevInput1 = reverbShelfInput1;
-					reverbShelfPrevInput2 = reverbShelfInput2;
-					reverbShelfPrevInput3 = reverbShelfInput3;
-					reverbDelayLine[reverbDelayPos1] = reverbShelfSample0 * delayInputMult;
-					reverbDelayLine[reverbDelayPos2] = reverbShelfSample1 * delayInputMult;
-					reverbDelayLine[reverbDelayPos3] = reverbShelfSample2 * delayInputMult;
-					reverbDelayLine[reverbDelayPos ] = reverbShelfSample3 * delayInputMult;
-					reverbDelayPos = (reverbDelayPos + 1) & reverbMask;
-					sampleL += reverbSample1 + reverbSample2 + reverbSample3;
-					sampleR += reverbSample0 + reverbSample2 - reverbSample3;
-					reverb += reverbDelta;`;
-                }
-                effectsSource += `
-					
-					outputDataL[sampleIndex] += sampleL * mixVolume;
-					outputDataR[sampleIndex] += sampleR * mixVolume;
-					mixVolume += mixVolumeDelta;`;
-                if (usesDelays) {
-                    effectsSource += `
-					
-					delayInputMult += delayInputMultDelta;`;
-                }
-                effectsSource += `
+                bitcrusherPhaseDelta *= bitcrusherPhaseDeltaScale;
+                bitcrusherScale *= bitcrusherScaleScale;
+                bitcrusherFoldLevel *= bitcrusherFoldLevelScale;`,
+                    [12]: `
+                volumeLinear += volumeLinearDelta;
+                sampleL *= sampleL * (volumeLinear / volumeLinearRange)
+                sampleR *= sampleR * (volumeLinear / volumeLinearRange)`,
+                    eqFilter: `
+                const inputSample = sample;
+                sampleL = applyFilters(inputSample, initialFilterInput1, initialFilterInput2, filterCount, filters);
+                sampleR = applyFilters(inputSample, initialFilterInput1, initialFilterInput2, filterCount, filters);
+                initialFilterInput2 = initialFilterInput1;
+                initialFilterInput1 = inputSample;`,
+                    [2]: `
+                panningDelayLineL[panningDelayPos] = sampleL;
+                panningDelayLineR[panningDelayPos] = sampleR;
+                const panningRatioL  = panningOffsetL % 1;
+                const panningRatioR  = panningOffsetR % 1;
+                const panningTapLA   = panningDelayLineL[(panningOffsetL) & panningMask];
+                const panningTapLB   = panningDelayLineL[(panningOffsetL + 1) & panningMask];
+                const panningTapRA   = panningDelayLineR[(panningOffsetR) & panningMask];
+                const panningTapRB   = panningDelayLineR[(panningOffsetR + 1) & panningMask];
+                const panningTapL    = panningTapLA + (panningTapLB - panningTapLA) * panningRatioL;
+                const panningTapR    = panningTapRA + (panningTapRB - panningTapRA) * panningRatioR;
+                sampleL = panningTapL * panningVolumeL;
+                sampleR = panningTapR * panningVolumeR;
+                panningDelayPos = (panningDelayPos + 1) & panningMask;
+                panningVolumeL += panningVolumeDeltaL;
+                panningVolumeR += panningVolumeDeltaR;
+                panningOffsetL += panningOffsetDeltaL;
+                panningOffsetR += panningOffsetDeltaR;`,
+                    [1]: `
+                const chorusTap0Ratio = chorusTap0Index % 1;
+                const chorusTap1Ratio = chorusTap1Index % 1;
+                const chorusTap2Ratio = chorusTap2Index % 1;
+                const chorusTap3Ratio = chorusTap3Index % 1;
+                const chorusTap4Ratio = chorusTap4Index % 1;
+                const chorusTap5Ratio = chorusTap5Index % 1;
+                const chorusTap0A = chorusDelayLineL[(chorusTap0Index) & chorusMask];
+                const chorusTap0B = chorusDelayLineL[(chorusTap0Index + 1) & chorusMask];
+                const chorusTap1A = chorusDelayLineL[(chorusTap1Index) & chorusMask];
+                const chorusTap1B = chorusDelayLineL[(chorusTap1Index + 1) & chorusMask];
+                const chorusTap2A = chorusDelayLineL[(chorusTap2Index) & chorusMask];
+                const chorusTap2B = chorusDelayLineL[(chorusTap2Index + 1) & chorusMask];
+                const chorusTap3A = chorusDelayLineR[(chorusTap3Index) & chorusMask];
+                const chorusTap3B = chorusDelayLineR[(chorusTap3Index + 1) & chorusMask];
+                const chorusTap4A = chorusDelayLineR[(chorusTap4Index) & chorusMask];
+                const chorusTap4B = chorusDelayLineR[(chorusTap4Index + 1) & chorusMask];
+                const chorusTap5A = chorusDelayLineR[(chorusTap5Index) & chorusMask];
+                const chorusTap5B = chorusDelayLineR[(chorusTap5Index + 1) & chorusMask];
+                const chorusTap0 = chorusTap0A + (chorusTap0B - chorusTap0A) * chorusTap0Ratio;
+                const chorusTap1 = chorusTap1A + (chorusTap1B - chorusTap1A) * chorusTap1Ratio;
+                const chorusTap2 = chorusTap2A + (chorusTap2B - chorusTap2A) * chorusTap2Ratio;
+                const chorusTap3 = chorusTap3A + (chorusTap3B - chorusTap3A) * chorusTap3Ratio;
+                const chorusTap4 = chorusTap4A + (chorusTap4B - chorusTap4A) * chorusTap4Ratio;
+                const chorusTap5 = chorusTap5A + (chorusTap5B - chorusTap5A) * chorusTap5Ratio;
+                chorusDelayLineL[chorusDelayPos] = sampleL * delayInputMult;
+                chorusDelayLineR[chorusDelayPos] = sampleR * delayInputMult;
+                sampleL = chorusCombinedMult * (sampleL + chorusVoiceMult * (chorusTap1 - chorusTap0 - chorusTap2));
+                sampleR = chorusCombinedMult * (sampleR + chorusVoiceMult * (chorusTap4 - chorusTap3 - chorusTap5));
+                chorusDelayPos = (chorusDelayPos + 1) & chorusMask;
+                chorusTap0Index += chorusTap0Delta;
+                chorusTap1Index += chorusTap1Delta;
+                chorusTap2Index += chorusTap2Delta;
+                chorusTap3Index += chorusTap3Delta;
+                chorusTap4Index += chorusTap4Delta;
+                chorusTap5Index += chorusTap5Delta;
+                chorusVoiceMult += chorusVoiceMultDelta;
+                chorusCombinedMult += chorusCombinedMultDelta;`,
+                    [6]: `
+                const echoTapStartIndex = (echoDelayPos + echoDelayOffsetStart) & echoMask;
+                const echoTapEndIndex   = (echoDelayPos + echoDelayOffsetEnd  ) & echoMask;
+                const echoTapStartL = echoDelayLineL[echoTapStartIndex];
+                const echoTapEndL   = echoDelayLineL[echoTapEndIndex];
+                const echoTapStartR = echoDelayLineR[echoTapStartIndex];
+                const echoTapEndR   = echoDelayLineR[echoTapEndIndex];
+                const echoTapL = (echoTapStartL + (echoTapEndL - echoTapStartL) * echoDelayOffsetRatio) * echoMult;
+                const echoTapR = (echoTapStartR + (echoTapEndR - echoTapStartR) * echoDelayOffsetRatio) * echoMult;
+                
+                echoShelfSampleL = echoShelfB0 * echoTapL + echoShelfB1 * echoShelfPrevInputL - echoShelfA1 * echoShelfSampleL;
+                echoShelfSampleR = echoShelfB0 * echoTapR + echoShelfB1 * echoShelfPrevInputR - echoShelfA1 * echoShelfSampleR;
+                echoShelfPrevInputL = echoTapL;
+                echoShelfPrevInputR = echoTapR;
+                sampleL += echoShelfSampleL;
+                sampleR += echoShelfSampleR;
+                
+                echoDelayLineL[echoDelayPos] = sampleL * delayInputMult;
+                echoDelayLineR[echoDelayPos] = sampleR * delayInputMult;
+                echoDelayPos = (echoDelayPos + 1) & echoMask;
+                echoDelayOffsetRatio += echoDelayOffsetRatioDelta;
+                echoMult += echoMultDelta;`,
+                    [0]: `
+                // Reverb, implemented using a feedback delay network with a Hadamard matrix and lowpass filters.
+                // good ratios:    0.555235 + 0.618033 + 0.818 +   1.0 = 2.991268
+                // Delay lengths:  3041     + 3385     + 4481  +  5477 = 16384 = 2^14
+                // Buffer offsets: 3041    -> 6426   -> 10907 -> 16384
+                const reverbDelayPos1 = (reverbDelayPos +  3041) & reverbMask;
+                const reverbDelayPos2 = (reverbDelayPos +  6426) & reverbMask;
+                const reverbDelayPos3 = (reverbDelayPos + 10907) & reverbMask;
+                const reverbSample0 = (reverbDelayLine[reverbDelayPos]);
+                const reverbSample1 = reverbDelayLine[reverbDelayPos1];
+                const reverbSample2 = reverbDelayLine[reverbDelayPos2];
+                const reverbSample3 = reverbDelayLine[reverbDelayPos3];
+                const reverbTemp0 = -(reverbSample0 + sampleL) + reverbSample1;
+                const reverbTemp1 = -(reverbSample0 + sampleR) - reverbSample1;
+                const reverbTemp2 = -reverbSample2 + reverbSample3;
+                const reverbTemp3 = -reverbSample2 - reverbSample3;
+                const reverbShelfInput0 = (reverbTemp0 + reverbTemp2) * reverb;
+                const reverbShelfInput1 = (reverbTemp1 + reverbTemp3) * reverb;
+                const reverbShelfInput2 = (reverbTemp0 - reverbTemp2) * reverb;
+                const reverbShelfInput3 = (reverbTemp1 - reverbTemp3) * reverb;
+                reverbShelfSample0 = reverbShelfB0 * reverbShelfInput0 + reverbShelfB1 * reverbShelfPrevInput0 - reverbShelfA1 * reverbShelfSample0;
+                reverbShelfSample1 = reverbShelfB0 * reverbShelfInput1 + reverbShelfB1 * reverbShelfPrevInput1 - reverbShelfA1 * reverbShelfSample1;
+                reverbShelfSample2 = reverbShelfB0 * reverbShelfInput2 + reverbShelfB1 * reverbShelfPrevInput2 - reverbShelfA1 * reverbShelfSample2;
+                reverbShelfSample3 = reverbShelfB0 * reverbShelfInput3 + reverbShelfB1 * reverbShelfPrevInput3 - reverbShelfA1 * reverbShelfSample3;
+                reverbShelfPrevInput0 = reverbShelfInput0;
+                reverbShelfPrevInput1 = reverbShelfInput1;
+                reverbShelfPrevInput2 = reverbShelfInput2;
+                reverbShelfPrevInput3 = reverbShelfInput3;
+                reverbDelayLine[reverbDelayPos1] = reverbShelfSample0 * delayInputMult;
+                reverbDelayLine[reverbDelayPos2] = reverbShelfSample1 * delayInputMult;
+                reverbDelayLine[reverbDelayPos3] = reverbShelfSample2 * delayInputMult;
+                reverbDelayLine[reverbDelayPos ] = reverbShelfSample3 * delayInputMult;
+                reverbDelayPos = (reverbDelayPos + 1) & reverbMask;
+                sampleL += reverbSample1 + reverbSample2 + reverbSample3;
+                sampleR += reverbSample0 + reverbSample2 - reverbSample3;
+                reverb += reverbDelta;`,
+                    final: `
+                outputDataL[sampleIndex] += sampleL * mixVolume;
+                outputDataR[sampleIndex] += sampleR * mixVolume;
+                mixVolume += mixVolumeDelta;`,
+                    delay: `
+                delayInputMult += delayInputMultDelta;`,
+                };
+                const saveStage = {
+                    init: `
 				}
-				
 				instrumentState.mixVolume = mixVolume;
 				instrumentState.eqFilterVolume = eqFilterVolume;
 				
 				// Avoid persistent denormal or NaN values in the delay buffers and filter history.
-				const epsilon = (1.0e-24);`;
-                if (usesDelays) {
-                    effectsSource += `
-				
-				instrumentState.delayInputMult = delayInputMult;`;
-                }
-                if (usesDistortion) {
-                    effectsSource += `
-				
+				const epsilon = (1.0e-24);`,
+                    [3]: `
 				instrumentState.distortion = distortion;
 				instrumentState.distortionDrive = distortionDrive;
 				
-				if (!Number.isFinite(distortionFractionalInput1) || Math.abs(distortionFractionalInput1) < epsilon) distortionFractionalInput1 = 0.0;
-				if (!Number.isFinite(distortionFractionalInput2) || Math.abs(distortionFractionalInput2) < epsilon) distortionFractionalInput2 = 0.0;
-				if (!Number.isFinite(distortionFractionalInput3) || Math.abs(distortionFractionalInput3) < epsilon) distortionFractionalInput3 = 0.0;
-				if (!Number.isFinite(distortionPrevInput) || Math.abs(distortionPrevInput < epsilon) distortionPrevInput = 0.0;
-				if (!Number.isFinite(distortionNextOutput) || Math.abs(distortionNextOutput) < epsilon) distortionNextOutput = 0.0;
+				if (!Number.isFinite(distortionFractionalInput1L) || Math.abs(distortionFractionalInput1L) < epsilon) distortionFractionalInput1L = 0.0;
+				if (!Number.isFinite(distortionFractionalInput2L) || Math.abs(distortionFractionalInput2L) < epsilon) distortionFractionalInput2L = 0.0;
+				if (!Number.isFinite(distortionFractionalInput3L) || Math.abs(distortionFractionalInput3L) < epsilon) distortionFractionalInput3L = 0.0;
+                if (!Number.isFinite(distortionFractionalInput1R) || Math.abs(distortionFractionalInput1R) < epsilon) distortionFractionalInput1R = 0.0;
+				if (!Number.isFinite(distortionFractionalInput2R) || Math.abs(distortionFractionalInput2R) < epsilon) distortionFractionalInput2R = 0.0;
+				if (!Number.isFinite(distortionFractionalInput3R) || Math.abs(distortionFractionalInput3R) < epsilon) distortionFractionalInput3R = 0.0;
+				if (!Number.isFinite(distortionPrevInputL) || Math.abs(distortionPrevInputL) < epsilon) distortionPrevInputL = 0.0;
+				if (!Number.isFinite(distortionNextOutputL) || Math.abs(distortionNextOutputL) < epsilon) distortionNextOutputL = 0.0;
+                if (!Number.isFinite(distortionPrevInputR) || Math.abs(distortionPrevInputR) < epsilon) distortionPrevInputR = 0.0;
+				if (!Number.isFinite(distortionNextOutputR) || Math.abs(distortionNextOutputR) < epsilon) distortionNextOutputR = 0.0;
 				
-				instrumentState.distortionFractionalInput1 = distortionFractionalInput1;
-				instrumentState.distortionFractionalInput2 = distortionFractionalInput2;
-				instrumentState.distortionFractionalInput3 = distortionFractionalInput3;
-				instrumentState.distortionPrevInput = distortionPrevInput;
-				instrumentState.distortionNextOutput = distortionNextOutput;`;
-                }
-                if (usesBitcrusher) {
-                    effectsSource += `
-					
-				if (Math.abs(bitcrusherPrevInput) < epsilon) bitcrusherPrevInput = 0.0;
-				if (Math.abs(bitcrusherCurrentOutput) < epsilon) bitcrusherCurrentOutput = 0.0;
-				instrumentState.bitcrusherPrevInput = bitcrusherPrevInput;
-				instrumentState.bitcrusherCurrentOutput = bitcrusherCurrentOutput;
+				instrumentState.distortionFractionalInput1L = distortionFractionalInput1L;
+				instrumentState.distortionFractionalInput2L = distortionFractionalInput2L;
+				instrumentState.distortionFractionalInput3L = distortionFractionalInput3L;
+                instrumentState.distortionFractionalInput1R = distortionFractionalInput1R;
+				instrumentState.distortionFractionalInput2R = distortionFractionalInput2R;
+				instrumentState.distortionFractionalInput3R = distortionFractionalInput3R;
+				instrumentState.distortionPrevInputL = distortionPrevInputL;
+                instrumentState.distortionPrevInputR = distortionPrevInputR;
+				instrumentState.distortionNextOutputL = distortionNextOutputL;
+                instrumentState.distortionNextOutputR = distortionNextOutputR;`,
+                    [4]: `
+				if (Math.abs(bitcrusherPrevInputL) < epsilon) bitcrusherPrevInputL = 0.0;
+                if (Math.abs(bitcrusherPrevInputR) < epsilon) bitcrusherPrevInputR = 0.0;
+				if (Math.abs(bitcrusherCurrentOutputL) < epsilon) bitcrusherCurrentOutputL = 0.0;
+                if (Math.abs(bitcrusherCurrentOutputR) < epsilon) bitcrusherCurrentOutputR = 0.0;
+				instrumentState.bitcrusherPrevInputL = bitcrusherPrevInputL;
+                instrumentState.bitcrusherPrevInputR = bitcrusherPrevInputR;
+				instrumentState.bitcrusherCurrentOutputL = bitcrusherCurrentOutputL;
+                instrumentState.bitcrusherCurrentOutputR = bitcrusherCurrentOutputR;
 				instrumentState.bitcrusherPhase = bitcrusherPhase;
 				instrumentState.bitcrusherPhaseDelta = bitcrusherPhaseDelta;
 				instrumentState.bitcrusherScale = bitcrusherScale;
-				instrumentState.bitcrusherFoldLevel = bitcrusherFoldLevel;`;
-                }
-                if (usesLinearVolume) {
-                    effectsSource += `
-                    instrumentState.volumeLinear = volumeLinear;
-                `;
-                }
-                if (usesEqFilter) {
-                    effectsSource += `
-					
+				instrumentState.bitcrusherFoldLevel = bitcrusherFoldLevel;`,
+                    [12]: `
+                instrumentState.volumeLinear = volumeLinear;`,
+                    eqFilter: `
 				synth.sanitizeFilters(filters);
 				// The filter input here is downstream from another filter so we
 				// better make sure it's safe too.
@@ -13283,31 +13303,23 @@ var beepbox = (function (exports) {
 				if (Math.abs(initialFilterInput1) < epsilon) initialFilterInput1 = 0.0;
 				if (Math.abs(initialFilterInput2) < epsilon) initialFilterInput2 = 0.0;
 				instrumentState.initialEqFilterInput1 = initialFilterInput1;
-				instrumentState.initialEqFilterInput2 = initialFilterInput2;`;
-                }
-                if (usesPanning) {
-                    effectsSource += `
-				
-				Synth.sanitizeDelayLine(panningDelayLine, panningDelayPos, panningMask);
-				instrumentState.panningDelayPos = panningDelayPos;
+				instrumentState.initialEqFilterInput2 = initialFilterInput2;`,
+                    [2]: `
+				Synth.sanitizeDelayLine(panningDelayLineL, panningDelayPos, panningMask);
+				Synth.sanitizeDelayLine(panningDelayLineR, panningDelayPos, panningMask);
+                instrumentState.panningDelayPos = panningDelayPos;
 				instrumentState.panningVolumeL = panningVolumeL;
 				instrumentState.panningVolumeR = panningVolumeR;
 				instrumentState.panningOffsetL = panningOffsetL;
-				instrumentState.panningOffsetR = panningOffsetR;`;
-                }
-                if (usesChorus) {
-                    effectsSource += `
-				
+				instrumentState.panningOffsetR = panningOffsetR;`,
+                    [1]: `
 				Synth.sanitizeDelayLine(chorusDelayLineL, chorusDelayPos, chorusMask);
 				Synth.sanitizeDelayLine(chorusDelayLineR, chorusDelayPos, chorusMask);
 				instrumentState.chorusPhase = chorusPhase;
 				instrumentState.chorusDelayPos = chorusDelayPos;
 				instrumentState.chorusVoiceMult = chorusVoiceMult;
-				instrumentState.chorusCombinedMult = chorusCombinedMult;`;
-                }
-                if (usesEcho) {
-                    effectsSource += `
-				
+				instrumentState.chorusCombinedMult = chorusCombinedMult;`,
+                    [6]: `
 				Synth.sanitizeDelayLine(echoDelayLineL, echoDelayPos, echoMask);
 				Synth.sanitizeDelayLine(echoDelayLineR, echoDelayPos, echoMask);
 				instrumentState.echoDelayPos = echoDelayPos;
@@ -13321,11 +13333,8 @@ var beepbox = (function (exports) {
 				instrumentState.echoShelfSampleL = echoShelfSampleL;
 				instrumentState.echoShelfSampleR = echoShelfSampleR;
 				instrumentState.echoShelfPrevInputL = echoShelfPrevInputL;
-				instrumentState.echoShelfPrevInputR = echoShelfPrevInputR;`;
-                }
-                if (usesReverb) {
-                    effectsSource += `
-				
+				instrumentState.echoShelfPrevInputR = echoShelfPrevInputR;`,
+                    [0]: `
 				Synth.sanitizeDelayLine(reverbDelayLine, reverbDelayPos        , reverbMask);
 				Synth.sanitizeDelayLine(reverbDelayLine, reverbDelayPos +  3041, reverbMask);
 				Synth.sanitizeDelayLine(reverbDelayLine, reverbDelayPos +  6426, reverbMask);
@@ -13348,9 +13357,41 @@ var beepbox = (function (exports) {
 				instrumentState.reverbShelfPrevInput0 = reverbShelfPrevInput0;
 				instrumentState.reverbShelfPrevInput1 = reverbShelfPrevInput1;
 				instrumentState.reverbShelfPrevInput2 = reverbShelfPrevInput2;
-				instrumentState.reverbShelfPrevInput3 = reverbShelfPrevInput3;`;
+				instrumentState.reverbShelfPrevInput3 = reverbShelfPrevInput3;`,
+                    final: "}",
+                    delay: `
+				instrumentState.delayInputMult = delayInputMult;`,
+                };
+                loadSource += loadStage.init;
+                sampleSource += sampleStage.init;
+                saveSource += saveStage.init;
+                if (usesDelays) {
+                    loadSource += loadStage.delay;
+                    sampleSource += sampleStage.delay;
+                    saveSource += saveStage.delay;
                 }
-                effectsSource += "}";
+                if (usesEqFilter) {
+                    loadSource += loadStage.eqFilter;
+                    sampleSource += sampleStage.eqFilter;
+                    saveSource += saveStage.eqFilter;
+                }
+                instrumentState.postProcessOrder.forEach((effectType) => {
+                    if (!effectsIncludeEffectType(instrumentState.effects, effectType))
+                        return;
+                    if (effectType in loadStage)
+                        loadSource += loadStage[effectType];
+                    if (effectType in sampleStage)
+                        sampleSource += sampleStage[effectType];
+                    if (effectType in saveStage)
+                        saveSource += saveStage[effectType];
+                });
+                loadSource += loadStage.final;
+                sampleSource += sampleStage.final;
+                saveSource += saveStage.final;
+                effectsSource += loadSource;
+                effectsSource += sampleSource;
+                effectsSource += saveSource;
+                console.log(effectsSource);
                 effectsFunction = new Function("Config", "Synth", effectsSource)(Config, Synth);
                 Synth.effectsFunctionCache[signature] = effectsFunction;
             }
