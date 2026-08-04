@@ -11543,6 +11543,11 @@ var beepbox = (function (exports) {
                     if (effectsIncludeVolumeLinear(instrument.effects)) {
                         buffer.push(base64IntToCharCode[instrument.volumeLinear]);
                     }
+                    buffer.push(74);
+                    for (var effect of instrument.postProcessOrder) {
+                        console.log(effect);
+                        buffer.push(base64IntToCharCode[effect]);
+                    }
                     if (instrument.type != 4) {
                         buffer.push(100, base64IntToCharCode[instrument.fadeIn], base64IntToCharCode[instrument.fadeOut]);
                         buffer.push(base64IntToCharCode[+instrument.clicklessTransition]);
@@ -13115,6 +13120,14 @@ var beepbox = (function (exports) {
                                 }
                             }
                             instrument.effects &= (1 << 13) - 1;
+                        }
+                        break;
+                    case 74:
+                        {
+                            const instrument = this.channels[instrumentChannelIterator].instruments[instrumentIndexIterator];
+                            for (let i = 0; i < Config.defaultPostProcessOrder.length; i++) {
+                                instrument.postProcessOrder[i] = base64CharCodeToInt[compressed.charCodeAt(charIndex++)];
+                            }
                         }
                         break;
                     case 118:

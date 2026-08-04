@@ -13431,6 +13431,11 @@ li.select2-results__option[role=group] > strong:hover {
                     if (effectsIncludeVolumeLinear(instrument.effects)) {
                         buffer.push(base64IntToCharCode[instrument.volumeLinear]);
                     }
+                    buffer.push(74);
+                    for (var effect of instrument.postProcessOrder) {
+                        console.log(effect);
+                        buffer.push(base64IntToCharCode[effect]);
+                    }
                     if (instrument.type != 4) {
                         buffer.push(100, base64IntToCharCode[instrument.fadeIn], base64IntToCharCode[instrument.fadeOut]);
                         buffer.push(base64IntToCharCode[+instrument.clicklessTransition]);
@@ -15003,6 +15008,14 @@ li.select2-results__option[role=group] > strong:hover {
                                 }
                             }
                             instrument.effects &= (1 << 13) - 1;
+                        }
+                        break;
+                    case 74:
+                        {
+                            const instrument = this.channels[instrumentChannelIterator].instruments[instrumentIndexIterator];
+                            for (let i = 0; i < Config.defaultPostProcessOrder.length; i++) {
+                                instrument.postProcessOrder[i] = base64CharCodeToInt[compressed.charCodeAt(charIndex++)];
+                            }
                         }
                         break;
                     case 118:
@@ -26163,6 +26176,7 @@ li.select2-results__option[role=group] > strong:hover {
                 instrument.fromJsonObject(preset.settings, isNoise, isMod, song.rhythm == 0 || song.rhythm == 2, song.rhythm >= 2, 1);
                 instrument.preset = presetValue;
                 instrument.effects |= 1 << 2;
+                instrument.postProcessOrder = [...Config.defaultPostProcessOrder];
             }
         }
     }
@@ -26411,10 +26425,8 @@ li.select2-results__option[role=group] > strong:hover {
             this._doc = _doc;
             this._instrument = this._doc.song.channels[this._doc.channel].instruments[this._doc.getCurrentInstrument()];
             array_move(this._instrument.postProcessOrder, this._instrument.postProcessOrder.indexOf(effectType), newValue);
-            console.log(this._instrument.postProcessOrder);
             _doc.notifier.changed();
-            if (oldValue != newValue)
-                this._didSomething();
+            this._didSomething();
         }
         commit() {
             if (!this.isNoop()) {
@@ -26429,7 +26441,6 @@ li.select2-results__option[role=group] > strong:hover {
             this._doc = _doc;
             this._instrument = this._doc.song.channels[this._doc.channel].instruments[this._doc.getCurrentInstrument()];
             this._instrument.postProcessOrder = [...Config.defaultPostProcessOrder];
-            console.log(this._instrument.postProcessOrder);
             _doc.notifier.changed();
             this._didSomething();
         }
