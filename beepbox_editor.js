@@ -409,8 +409,17 @@ var beepbox = (function (exports) {
     Config.ratioVal = 12;
     Config.attackVal = 0;
     Config.releaseVal = 0.25;
+    Config.defaultPostProcessOrder = [
+        3,
+        4,
+        12,
+        2,
+        1,
+        6,
+        0,
+    ];
     Config.willReloadForCustomSamples = false;
-    Config.jsonFormat = "UltraBox";
+    Config.jsonFormat = "MixerBox";
     Config.scales = toNameMap([
         { name: "Free", realName: "chromatic", flags: [true, true, true, true, true, true, true, true, true, true, true, true] },
         { name: "Major", realName: "ionian", flags: [true, false, true, false, true, true, false, true, false, true, false, true] },
@@ -467,7 +476,7 @@ var beepbox = (function (exports) {
     Config.reverbRange = 32;
     Config.reverbDelayBufferSize = 16384;
     Config.reverbDelayBufferMask = Config.reverbDelayBufferSize - 1;
-    Config.volumeLinearRange = 100;
+    Config.volumeLinearRange = 50;
     Config.beatsPerBarMin = 1;
     Config.beatsPerBarMax = 64;
     Config.barCountMin = 1;
@@ -788,6 +797,12 @@ var beepbox = (function (exports) {
         { name: "75×", mult: 75.0, hzOffset: 0.0, amplitudeSign: 1.0 },
         { name: "100×", mult: 100.0, hzOffset: 0.0, amplitudeSign: 1.0 }
     ]);
+    Config.customEnvelopeFadeInRange = 10;
+    Config.customEnvelopeFadeOutRange = 10;
+    Config.customEnvelopeSustainRange = 10;
+    Config.customEnvelopeStartAmtRange = 10;
+    Config.customEnvelopeEndAmtRange = 10;
+    Config.customEnvelopeSustainAmtRange = 10;
     Config.envelopes = toNameMap([
         { name: "none", type: 1, speed: 0.0 },
         { name: "note size", type: 0, speed: 0.0 },
@@ -850,6 +865,7 @@ var beepbox = (function (exports) {
         { name: "blip 1", type: 13, speed: 6.0 },
         { name: "blip 2", type: 13, speed: 16.0 },
         { name: "blip 3", type: 13, speed: 32.0 },
+        { name: "custom", type: 14, speed: 50.0 },
     ]);
     Config.feedbacks = toNameMap([
         { name: "1⟲", indices: [[1], [], [], []] },
@@ -1028,7 +1044,6 @@ var beepbox = (function (exports) {
         { name: "next bar", maxRawVol: 1, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
         { name: "skip bars", maxRawVol: 20, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
         { name: "note volume", maxRawVol: Config.volumeRange, newNoteVol: Math.ceil(Config.volumeRange / 2), forSong: false, convertRealFactor: Math.ceil(-Config.volumeRange / 2.0), associatedEffect: 13 },
-        { name: "linear volume", maxRawVol: Config.volumeLinearRange, newNoteVol: Config.volumeLinearRange, forSong: false, convertRealFactor: 0, associatedEffect: 12 },
         { name: "pan", maxRawVol: Config.panMax, newNoteVol: Math.ceil(Config.panMax / 2), forSong: false, convertRealFactor: 0, associatedEffect: 2 },
         { name: "reverb", maxRawVol: Config.reverbRange, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 0 },
         { name: "distortion", maxRawVol: Config.distortionRange - 1, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 3 },
@@ -1067,6 +1082,7 @@ var beepbox = (function (exports) {
         { name: "dynamism", maxRawVol: Config.supersawDynamismMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
         { name: "spread", maxRawVol: Config.supersawSpreadMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
         { name: "saw shape", maxRawVol: Config.supersawShapeMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
+        { name: "linear volume", maxRawVol: Config.volumeLinearRange, newNoteVol: Config.volumeLinearRange, forSong: false, convertRealFactor: 0, associatedEffect: 12 },
     ]);
     function centerWave(wave) {
         let sum = 0.0;
@@ -1389,6 +1405,9 @@ var beepbox = (function (exports) {
     }
     function effectsIncludeVolumeLinear(effects) {
         return (effects & (1 << 12)) != 0;
+    }
+    function effectsIncludeEffectType(effects, effectType) {
+        return (effects & (1 << effectType)) != 0;
     }
     function rawChipToIntegrated(raw) {
         const newArray = new Array(raw.length);
@@ -8847,6 +8866,26 @@ html {
 	visibility: hidden;
 }
 
+.beepboxEditor .reset-process {
+	width: var(--button-size);
+}
+.beepboxEditor .reset-process::before {
+	content: "";
+	position: absolute;
+	width: var(--button-size);
+	height: var(--button-size);
+	left: 0;
+	top: 0;
+	pointer-events: none;
+	background: currentColor;
+	mask-image: var(--internal-close-symbol);
+	mask-repeat: no-repeat;
+	mask-position: center;
+	-webkit-mask-image: var(--internal-close-symbol);
+	-webkit-mask-repeat: no-repeat;
+	-webkit-mask-position: center;
+}
+
 .beepboxEditor .effects-menu {
 	width: var(--button-size);
 	position: relative;
@@ -11623,6 +11662,7 @@ li.select2-results__option[role=group] > strong:hover {
             this.target = 0;
             this.index = 0;
             this.envelope = 0;
+            this.customEnvelope = CustomEnvelope.defaultCustomEnvelope();
             this.reset();
         }
         reset() {
@@ -11656,6 +11696,68 @@ li.select2-results__option[role=group] > strong:hover {
             else {
                 this.index = 0;
             }
+        }
+    }
+    class CustomEnvelope {
+        constructor(params) {
+            this.params = {
+                fadeIn: 0.0,
+                fadeOut: 0.0,
+                sustain: 0.0,
+                startAmt: 0.0,
+                endAmt: 0.0,
+                sustainAmt: 0.0,
+            };
+            this.params = params;
+        }
+        getParameter(type) {
+            if (type == "fadeIn")
+                return this.params.fadeIn;
+            if (type == "fadeOut")
+                return this.params.fadeOut;
+            if (type == "sustain")
+                return this.params.sustain;
+            if (type == "startAmt")
+                return this.params.startAmt;
+            if (type == "endAmt")
+                return this.params.endAmt;
+            if (type == "sustainAmt")
+                return this.params.sustainAmt;
+            return -1;
+        }
+        setParameter(type, value) {
+            if (type == "fadeIn")
+                this.params.fadeIn = value;
+            if (type == "fadeOut")
+                this.params.fadeOut = value;
+            if (type == "sustain")
+                this.params.sustain = value;
+            if (type == "startAmt")
+                this.params.startAmt = value;
+            if (type == "endAmt")
+                this.params.endAmt = value;
+            if (type == "sustainAmt")
+                this.params.sustainAmt = value;
+        }
+        equation(time) {
+            let lin = 0;
+            if (time < this.params.fadeIn) {
+                lin = this.params.startAmt + (time / this.params.fadeIn) * (this.params.sustainAmt - this.params.startAmt);
+            }
+            else if (time < this.params.sustain + this.params.fadeIn) {
+                lin = this.params.sustainAmt;
+            }
+            else if (time < this.params.fadeOut + this.params.sustain + this.params.fadeIn) {
+                let adjustedTime = time - this.params.fadeIn - this.params.sustain;
+                lin = this.params.endAmt + (1 - adjustedTime / this.params.fadeOut) * (this.params.sustainAmt - this.params.endAmt);
+            }
+            else {
+                lin = this.params.endAmt;
+            }
+            return lin;
+        }
+        static defaultCustomEnvelope() {
+            return new CustomEnvelope({ fadeIn: 0.5, fadeOut: 0.5, sustain: 0.2, startAmt: 0, endAmt: 0, sustainAmt: 1 });
         }
     }
     class Instrument {
@@ -11745,6 +11847,15 @@ li.select2-results__option[role=group] > strong:hover {
             this.modulators = [];
             this.modFilterTypes = [];
             this.invalidModulators = [];
+            this.postProcessOrder = [
+                3,
+                4,
+                12,
+                2,
+                1,
+                6,
+                0,
+            ];
             if (isModChannel) {
                 for (let mod = 0; mod < Config.modCount; mod++) {
                     this.modChannels.push(-2);
@@ -12320,7 +12431,7 @@ li.select2-results__option[role=group] > strong:hover {
                 this.preset = instrumentObject["preset"] >>> 0;
             }
             if (instrumentObject["volume"] != undefined) {
-                if (format == "jummbox" || format == "midbox" || format == "synthbox" || format == "goldbox" || format == "paandorasbox" || format == "ultrabox") {
+                if (format == "jummbox" || format == "midbox" || format == "synthbox" || format == "goldbox" || format == "paandorasbox" || format == "ultrabox" || format == "mixerbox") {
                     this.volume = clamp(-Config.volumeRange / 2, (Config.volumeRange / 2) + 1, instrumentObject["volume"] | 0);
                 }
                 else {
@@ -12973,7 +13084,7 @@ li.select2-results__option[role=group] > strong:hover {
         static frequencyFromPitch(pitch) {
             return 440.0 * Math.pow(2.0, (pitch - 69.0) / 12.0);
         }
-        addEnvelope(target, index, envelope) {
+        addEnvelope(target, index, envelope, customEnvelope = CustomEnvelope.defaultCustomEnvelope()) {
             let makeEmpty = false;
             if (!this.supportsEnvelopeTarget(target, index))
                 makeEmpty = true;
@@ -12985,6 +13096,7 @@ li.select2-results__option[role=group] > strong:hover {
             envelopeSettings.target = makeEmpty ? Config.instrumentAutomationTargets.dictionary["none"].index : target;
             envelopeSettings.index = makeEmpty ? 0 : index;
             envelopeSettings.envelope = envelope;
+            envelopeSettings.customEnvelope = customEnvelope;
             this.envelopeCount++;
         }
         supportsEnvelopeTarget(target, index) {
@@ -13390,6 +13502,10 @@ li.select2-results__option[role=group] > strong:hover {
                     if (effectsIncludeVolumeLinear(instrument.effects)) {
                         buffer.push(base64IntToCharCode[instrument.volumeLinear]);
                     }
+                    buffer.push(74);
+                    for (var effect of instrument.postProcessOrder) {
+                        buffer.push(base64IntToCharCode[effect]);
+                    }
                     if (instrument.type != 4) {
                         buffer.push(100, base64IntToCharCode[instrument.fadeIn], base64IntToCharCode[instrument.fadeOut]);
                         buffer.push(base64IntToCharCode[+instrument.clicklessTransition]);
@@ -13575,6 +13691,13 @@ li.select2-results__option[role=group] > strong:hover {
                             buffer.push(base64IntToCharCode[instrument.envelopes[envelopeIndex].index]);
                         }
                         buffer.push(base64IntToCharCode[instrument.envelopes[envelopeIndex].envelope]);
+                        const customParams = instrument.envelopes[envelopeIndex].customEnvelope.params;
+                        buffer.push(base64IntToCharCode[customParams.fadeIn * 10]);
+                        buffer.push(base64IntToCharCode[customParams.fadeOut * 10]);
+                        buffer.push(base64IntToCharCode[customParams.startAmt * 10]);
+                        buffer.push(base64IntToCharCode[customParams.sustainAmt * 10]);
+                        buffer.push(base64IntToCharCode[customParams.endAmt * 10]);
+                        buffer.push(base64IntToCharCode[customParams.sustain * 10]);
                     }
                 }
             }
@@ -13812,43 +13935,34 @@ li.select2-results__option[role=group] > strong:hover {
                 return;
             }
             const variantTest = compressed.charCodeAt(charIndex);
-            let fromBeepBox;
-            let fromJummBox;
-            let fromGoldBox;
-            let fromUltraBox;
+            let fromBeepBox = false;
+            let fromJummBox = false;
+            let fromGoldBox = false;
+            let fromUltraBox = false;
+            let fromMixerBox = false;
             if (variantTest == 0x6A) {
-                fromBeepBox = false;
                 fromJummBox = true;
-                fromGoldBox = false;
-                fromUltraBox = false;
                 charIndex++;
             }
             else if (variantTest == 0x67) {
-                fromBeepBox = false;
-                fromJummBox = false;
                 fromGoldBox = true;
-                fromUltraBox = false;
                 charIndex++;
             }
             else if (variantTest == 0x75) {
-                fromBeepBox = false;
-                fromJummBox = false;
-                fromGoldBox = false;
                 fromUltraBox = true;
                 charIndex++;
             }
             else if (variantTest == 0x64) {
-                fromBeepBox = false;
                 fromJummBox = true;
-                fromGoldBox = false;
-                fromUltraBox = false;
+                charIndex++;
+            }
+            else if (variantTest == 0x4D) {
+                fromUltraBox = true;
+                fromMixerBox = true;
                 charIndex++;
             }
             else {
                 fromBeepBox = true;
-                fromJummBox = false;
-                fromGoldBox = false;
-                fromUltraBox = false;
             }
             const version = base64CharCodeToInt[compressed.charCodeAt(charIndex++)];
             if (fromBeepBox && (version == -1 || version > Song._latestBeepboxVersion || version < Song._oldestBeepboxVersion))
@@ -14975,6 +15089,14 @@ li.select2-results__option[role=group] > strong:hover {
                             instrument.effects &= (1 << 13) - 1;
                         }
                         break;
+                    case 74:
+                        {
+                            const instrument = this.channels[instrumentChannelIterator].instruments[instrumentIndexIterator];
+                            for (let i = 0; i < Config.defaultPostProcessOrder.length; i++) {
+                                instrument.postProcessOrder[i] = base64CharCodeToInt[compressed.charCodeAt(charIndex++)];
+                            }
+                        }
+                        break;
                     case 118:
                         {
                             if (beforeThree && fromBeepBox) {
@@ -15271,7 +15393,17 @@ li.select2-results__option[role=group] > strong:hover {
                                     if (fromJummBox)
                                         aa = jummToUltraEnvelope[aa];
                                     const envelope = clamp(0, Config.envelopes.length, aa);
-                                    instrument.addEnvelope(target, index, envelope);
+                                    let customEnvelope = CustomEnvelope.defaultCustomEnvelope();
+                                    if (fromMixerBox) {
+                                        const fadeIn = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const fadeOut = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const startAmt = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const sustainAmt = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const endAmt = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const sustain = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        customEnvelope = new CustomEnvelope({ fadeIn: fadeIn, fadeOut: fadeOut, startAmt: startAmt, sustainAmt: sustainAmt, endAmt: endAmt, sustain: sustain });
+                                    }
+                                    instrument.addEnvelope(target, index, envelope, customEnvelope);
                                 }
                             }
                         }
@@ -16716,7 +16848,7 @@ li.select2-results__option[role=group] > strong:hover {
     Song._latestGoldBoxVersion = 4;
     Song._oldestUltraBoxVersion = 1;
     Song._latestUltraBoxVersion = 5;
-    Song._variant = 0x75;
+    Song._variant = 0x4D;
     class PickedString {
         constructor() {
             this.delayLine = null;
@@ -17033,41 +17165,44 @@ li.select2-results__option[role=group] > strong:hover {
                 let automationTarget;
                 let targetIndex;
                 let envelope;
+                let customEnvelope;
                 if (envelopeIndex == instrument.envelopeCount) {
                     if (usedNoteSize)
                         break;
                     automationTarget = Config.instrumentAutomationTargets.dictionary["noteVolume"];
                     targetIndex = 0;
                     envelope = Config.envelopes.dictionary["note size"];
+                    customEnvelope = CustomEnvelope.defaultCustomEnvelope();
                 }
                 else {
                     let envelopeSettings = instrument.envelopes[envelopeIndex];
                     automationTarget = Config.instrumentAutomationTargets[envelopeSettings.target];
                     targetIndex = envelopeSettings.index;
                     envelope = Config.envelopes[envelopeSettings.envelope];
+                    customEnvelope = envelopeSettings.customEnvelope;
                     if (envelope.type == 0)
                         usedNoteSize = true;
                 }
                 if (automationTarget.computeIndex != null) {
                     const computeIndex = automationTarget.computeIndex + targetIndex;
-                    let envelopeStart = EnvelopeComputer.computeEnvelope(envelope, noteSecondsStart, beatTimeStart, noteSizeStart);
+                    let envelopeStart = EnvelopeComputer.computeEnvelope(envelope, noteSecondsStart, beatTimeStart, noteSizeStart, customEnvelope);
                     if (prevSlideStart) {
-                        const other = EnvelopeComputer.computeEnvelope(envelope, prevNoteSecondsStart, beatTimeStart, prevNoteSize);
+                        const other = EnvelopeComputer.computeEnvelope(envelope, prevNoteSecondsStart, beatTimeStart, prevNoteSize, customEnvelope);
                         envelopeStart += (other - envelopeStart) * prevSlideRatioStart;
                     }
                     if (nextSlideStart) {
-                        const other = EnvelopeComputer.computeEnvelope(envelope, 0.0, beatTimeStart, nextNoteSize);
+                        const other = EnvelopeComputer.computeEnvelope(envelope, 0.0, beatTimeStart, nextNoteSize, customEnvelope);
                         envelopeStart += (other - envelopeStart) * nextSlideRatioStart;
                     }
                     let envelopeEnd = envelopeStart;
                     if (instrument.discreteEnvelope == false) {
-                        envelopeEnd = EnvelopeComputer.computeEnvelope(envelope, noteSecondsEnd, beatTimeEnd, noteSizeEnd);
+                        envelopeEnd = EnvelopeComputer.computeEnvelope(envelope, noteSecondsEnd, beatTimeEnd, noteSizeEnd, customEnvelope);
                         if (prevSlideEnd) {
-                            const other = EnvelopeComputer.computeEnvelope(envelope, prevNoteSecondsEnd, beatTimeEnd, prevNoteSize);
+                            const other = EnvelopeComputer.computeEnvelope(envelope, prevNoteSecondsEnd, beatTimeEnd, prevNoteSize, customEnvelope);
                             envelopeEnd += (other - envelopeEnd) * prevSlideRatioEnd;
                         }
                         if (nextSlideEnd) {
-                            const other = EnvelopeComputer.computeEnvelope(envelope, 0.0, beatTimeEnd, nextNoteSize);
+                            const other = EnvelopeComputer.computeEnvelope(envelope, 0.0, beatTimeEnd, nextNoteSize, customEnvelope);
                             envelopeEnd += (other - envelopeEnd) * nextSlideRatioEnd;
                         }
                     }
@@ -17116,7 +17251,7 @@ li.select2-results__option[role=group] > strong:hover {
             }
             this._modifiedEnvelopeCount = 0;
         }
-        static computeEnvelope(envelope, time, beats, noteSize) {
+        static computeEnvelope(envelope, time, beats, noteSize, customEnvelope = CustomEnvelope.defaultCustomEnvelope()) {
             switch (envelope.type) {
                 case 0: return Synth.noteSizeToVolumeMult(noteSize);
                 case 1: return 1.0;
@@ -17143,6 +17278,10 @@ li.select2-results__option[role=group] > strong:hover {
                 case 12: {
                     let lin = (time / (16 / envelope.speed));
                     lin = lin < 1.0 ? lin : 1.0;
+                    return lin;
+                }
+                case 14: {
+                    let lin = customEnvelope.equation(time);
                     return lin;
                 }
                 default: throw new Error("Unrecognized operator envelope type.");
@@ -17314,13 +17453,20 @@ li.select2-results__option[role=group] > strong:hover {
             this.distortionDelta = 0.0;
             this.distortionDrive = 0.0;
             this.distortionDriveDelta = 0.0;
-            this.distortionFractionalInput1 = 0.0;
-            this.distortionFractionalInput2 = 0.0;
-            this.distortionFractionalInput3 = 0.0;
-            this.distortionPrevInput = 0.0;
-            this.distortionNextOutput = 0.0;
-            this.bitcrusherPrevInput = 0.0;
-            this.bitcrusherCurrentOutput = 0.0;
+            this.distortionFractionalInput1L = 0.0;
+            this.distortionFractionalInput2L = 0.0;
+            this.distortionFractionalInput3L = 0.0;
+            this.distortionFractionalInput1R = 0.0;
+            this.distortionFractionalInput2R = 0.0;
+            this.distortionFractionalInput3R = 0.0;
+            this.distortionPrevInputL = 0.0;
+            this.distortionPrevInputR = 0.0;
+            this.distortionNextOutputL = 0.0;
+            this.distortionNextOutputR = 0.0;
+            this.bitcrusherPrevInputL = 0.0;
+            this.bitcrusherPrevInputR = 0.0;
+            this.bitcrusherCurrentOutputL = 0.0;
+            this.bitcrusherCurrentOutputR = 0.0;
             this.bitcrusherPhase = 1.0;
             this.bitcrusherPhaseDelta = 0.0;
             this.bitcrusherPhaseDeltaScale = 1.0;
@@ -17328,11 +17474,15 @@ li.select2-results__option[role=group] > strong:hover {
             this.bitcrusherScaleScale = 1.0;
             this.bitcrusherFoldLevel = 1.0;
             this.bitcrusherFoldLevelScale = 1.0;
-            this.eqFilters = [];
+            this.eqFiltersL = [];
+            this.eqFiltersR = [];
             this.eqFilterCount = 0;
-            this.initialEqFilterInput1 = 0.0;
-            this.initialEqFilterInput2 = 0.0;
-            this.panningDelayLine = null;
+            this.initialEqFilterInputL1 = 0.0;
+            this.initialEqFilterInputL2 = 0.0;
+            this.initialEqFilterInputR1 = 0.0;
+            this.initialEqFilterInputR2 = 0.0;
+            this.panningDelayLineL = null;
+            this.panningDelayLineR = null;
             this.panningDelayPos = 0;
             this.panningVolumeL = 0.0;
             this.panningVolumeR = 0.0;
@@ -17386,6 +17536,7 @@ li.select2-results__option[role=group] > strong:hover {
             this.reverbShelfPrevInput3 = 0.0;
             this.volumeLinear = 100.0;
             this.volumeLinearDelta = 0.0;
+            this.postProcessOrder = [...Config.defaultPostProcessOrder];
             this.spectrumWave = new SpectrumWaveState();
             this.harmonicsWave = new HarmonicsWaveState();
             this.drumsetSpectrumWaves = [];
@@ -17395,8 +17546,11 @@ li.select2-results__option[role=group] > strong:hover {
         }
         allocateNecessaryBuffers(synth, instrument, samplesPerTick) {
             if (effectsIncludePanning(instrument.effects)) {
-                if (this.panningDelayLine == null || this.panningDelayLine.length < synth.panningDelayBufferSize) {
-                    this.panningDelayLine = new Float32Array(synth.panningDelayBufferSize);
+                if (this.panningDelayLineL == null || this.panningDelayLineL.length < synth.panningDelayBufferSize) {
+                    this.panningDelayLineL = new Float32Array(synth.panningDelayBufferSize);
+                }
+                if (this.panningDelayLineR == null || this.panningDelayLineR.length < synth.panningDelayBufferSize) {
+                    this.panningDelayLineR = new Float32Array(synth.panningDelayBufferSize);
                 }
             }
             if (effectsIncludeChorus(instrument.effects)) {
@@ -17435,24 +17589,37 @@ li.select2-results__option[role=group] > strong:hover {
             }
         }
         deactivate() {
-            this.bitcrusherPrevInput = 0.0;
-            this.bitcrusherCurrentOutput = 0.0;
+            this.bitcrusherPrevInputL = 0.0;
+            this.bitcrusherPrevInputR = 0.0;
+            this.bitcrusherCurrentOutputL = 0.0;
+            this.bitcrusherCurrentOutputR = 0.0;
             this.bitcrusherPhase = 1.0;
             for (let i = 0; i < this.eqFilterCount; i++) {
-                this.eqFilters[i].resetOutput();
+                this.eqFiltersL[i].resetOutput();
+                this.eqFiltersR[i].resetOutput();
             }
             this.eqFilterCount = 0;
-            this.initialEqFilterInput1 = 0.0;
-            this.initialEqFilterInput2 = 0.0;
-            this.distortionFractionalInput1 = 0.0;
-            this.distortionFractionalInput2 = 0.0;
-            this.distortionFractionalInput3 = 0.0;
-            this.distortionPrevInput = 0.0;
-            this.distortionNextOutput = 0.0;
+            this.initialEqFilterInputL1 = 0.0;
+            this.initialEqFilterInputL2 = 0.0;
+            this.initialEqFilterInputR1 = 0.0;
+            this.initialEqFilterInputR2 = 0.0;
+            this.distortionFractionalInput1L = 0.0;
+            this.distortionFractionalInput2L = 0.0;
+            this.distortionFractionalInput3L = 0.0;
+            this.distortionFractionalInput1R = 0.0;
+            this.distortionFractionalInput2R = 0.0;
+            this.distortionFractionalInput3R = 0.0;
+            this.distortionPrevInputL = 0.0;
+            this.distortionNextOutputL = 0.0;
+            this.distortionPrevInputR = 0.0;
+            this.distortionNextOutputR = 0.0;
             this.panningDelayPos = 0;
-            if (this.panningDelayLine != null)
-                for (let i = 0; i < this.panningDelayLine.length; i++)
-                    this.panningDelayLine[i] = 0.0;
+            if (this.panningDelayLineL != null)
+                for (let i = 0; i < this.panningDelayLineL.length; i++)
+                    this.panningDelayLineL[i] = 0.0;
+            if (this.panningDelayLineR != null)
+                for (let i = 0; i < this.panningDelayLineR.length; i++)
+                    this.panningDelayLineR[i] = 0.0;
             this.echoDelayOffsetEnd = null;
             this.echoShelfSampleL = 0.0;
             this.echoShelfSampleR = 0.0;
@@ -17506,6 +17673,7 @@ li.select2-results__option[role=group] > strong:hover {
             this.chord = instrument.getChord();
             this.noisePitchFilterMult = Config.chipNoises[instrument.chipNoise].pitchFilterMult;
             this.effects = instrument.effects;
+            this.postProcessOrder = [...instrument.postProcessOrder];
             this.aliases = instrument.aliases;
             this.volumeScale = 1.0;
             this.allocateNecessaryBuffers(synth, instrument, samplesPerTick);
@@ -17604,17 +17772,23 @@ li.select2-results__option[role=group] > strong:hover {
                     let endPoint = eqFilterSettingsEnd.controlPoints[0];
                     startPoint.toCoefficients(Synth.tempFilterStartCoefficients, samplesPerSecond, 1.0, 1.0);
                     endPoint.toCoefficients(Synth.tempFilterEndCoefficients, samplesPerSecond, 1.0, 1.0);
-                    if (this.eqFilters.length < 1)
-                        this.eqFilters[0] = new DynamicBiquadFilter();
-                    this.eqFilters[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersL.length < 1)
+                        this.eqFiltersL[0] = new DynamicBiquadFilter();
+                    this.eqFiltersL[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersR.length < 1)
+                        this.eqFiltersR[0] = new DynamicBiquadFilter();
+                    this.eqFiltersR[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
                 }
                 else {
                     eqFilterSettingsStart.convertLegacySettingsForSynth(startSimpleFreq, startSimpleGain, true);
                     startPoint = eqFilterSettingsStart.controlPoints[0];
                     startPoint.toCoefficients(Synth.tempFilterStartCoefficients, samplesPerSecond, 1.0, 1.0);
-                    if (this.eqFilters.length < 1)
-                        this.eqFilters[0] = new DynamicBiquadFilter();
-                    this.eqFilters[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterStartCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersL.length < 1)
+                        this.eqFiltersL[0] = new DynamicBiquadFilter();
+                    this.eqFiltersL[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterStartCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersR.length < 1)
+                        this.eqFiltersR[0] = new DynamicBiquadFilter();
+                    this.eqFiltersR[0].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterStartCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
                 }
                 eqFilterVolume *= startPoint.getVolumeCompensationMult();
                 this.eqFilterCount = 1;
@@ -17630,9 +17804,12 @@ li.select2-results__option[role=group] > strong:hover {
                     }
                     startPoint.toCoefficients(Synth.tempFilterStartCoefficients, samplesPerSecond, 1.0, 1.0);
                     endPoint.toCoefficients(Synth.tempFilterEndCoefficients, samplesPerSecond, 1.0, 1.0);
-                    if (this.eqFilters.length <= i)
-                        this.eqFilters[i] = new DynamicBiquadFilter();
-                    this.eqFilters[i].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersL.length <= i)
+                        this.eqFiltersL[i] = new DynamicBiquadFilter();
+                    this.eqFiltersL[i].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
+                    if (this.eqFiltersR.length <= i)
+                        this.eqFiltersR[i] = new DynamicBiquadFilter();
+                    this.eqFiltersR[i].loadCoefficientsWithGradient(Synth.tempFilterStartCoefficients, Synth.tempFilterEndCoefficients, 1.0 / roundedSamplesPerTick, startPoint.type == 0);
                     eqFilterVolume *= startPoint.getVolumeCompensationMult();
                 }
                 this.eqFilterCount = eqFilterSettings.controlPointCount;
@@ -18446,6 +18623,7 @@ li.select2-results__option[role=group] > strong:hover {
             this.tempFrequencyResponse = new FrequencyResponse();
             this.loopBarStart = -1;
             this.loopBarEnd = -1;
+            this.lastPostProcessOrder = [...Config.defaultPostProcessOrder];
             this.channels = [];
             this.tonePool = new Deque();
             this.tempMatchedPitchTones = Array(Config.maxChordSize).fill(null);
@@ -21311,24 +21489,38 @@ li.select2-results__option[role=group] > strong:hover {
             signature = signature << 1;
             if (usesLinearVolume)
                 signature = signature | 1;
+            let samePostProcess = true;
+            for (var i in instrumentState.postProcessOrder) {
+                if (instrumentState.postProcessOrder[i] != synth.lastPostProcessOrder[i])
+                    samePostProcess = false;
+            }
             let effectsFunction = Synth.effectsFunctionCache[signature];
-            if (effectsFunction == undefined) {
+            if (effectsFunction == undefined || !samePostProcess) {
+                synth.lastPostProcessOrder = [...instrumentState.postProcessOrder];
                 let effectsSource = "return (synth, outputDataL, outputDataR, bufferIndex, runLength, instrumentState) => {";
                 const usesDelays = usesChorus || usesReverb || usesEcho;
-                effectsSource += `
+                let loadSource = "";
+                let sampleSource = "";
+                let saveSource = "";
+                const loadStage = {
+                    init: `
 				const tempMonoInstrumentSampleBuffer = synth.tempMonoInstrumentSampleBuffer;
 				
 				let mixVolume = +instrumentState.mixVolume;
-				const mixVolumeDelta = +instrumentState.mixVolumeDelta;`;
-                if (usesDelays) {
-                    effectsSource += `
-				
+				const mixVolumeDelta = +instrumentState.mixVolumeDelta;`,
+                    delay: `
 				let delayInputMult = +instrumentState.delayInputMult;
-				const delayInputMultDelta = +instrumentState.delayInputMultDelta;`;
-                }
-                if (usesDistortion) {
-                    effectsSource += `
-				
+				const delayInputMultDelta = +instrumentState.delayInputMultDelta;`,
+                    eqFilter: `
+				let filtersL = instrumentState.eqFiltersL;
+                let filtersR = instrumentState.eqFiltersR;
+				const filterCount = instrumentState.eqFilterCount|0;
+				let initialFilterInput1L = +instrumentState.initialEqFilterInput1L;
+				let initialFilterInput2L = +instrumentState.initialEqFilterInput2L;
+				let initialFilterInput1R = +instrumentState.initialEqFilterInput1R;
+				let initialFilterInput2R = +instrumentState.initialEqFilterInput2R;
+				const applyFilters = Synth.applyFilters;`,
+                    [3]: `
 				const distortionBaseVolume = +Config.distortionBaseVolume;
 				let distortion = instrumentState.distortion;
 				const distortionDelta = instrumentState.distortionDelta;
@@ -21348,51 +21540,37 @@ li.select2-results__option[role=group] > strong:hover {
 				const distortionPrevOutputWeight1 = 1.0 - distortionNextOutputWeight1;
 				const distortionPrevOutputWeight2 = 1.0 - distortionNextOutputWeight2;
 				const distortionPrevOutputWeight3 = 1.0 - distortionNextOutputWeight3;
-				
-				let distortionFractionalInput1 = +instrumentState.distortionFractionalInput1;
-				let distortionFractionalInput2 = +instrumentState.distortionFractionalInput2;
-				let distortionFractionalInput3 = +instrumentState.distortionFractionalInput3;
-				let distortionPrevInput = +instrumentState.distortionPrevInput;
-				let distortionNextOutput = +instrumentState.distortionNextOutput;`;
-                }
-                if (usesBitcrusher) {
-                    effectsSource += `
-				
-				let bitcrusherPrevInput = +instrumentState.bitcrusherPrevInput;
-				let bitcrusherCurrentOutput = +instrumentState.bitcrusherCurrentOutput;
+
+				let distortionFractionalInput1L = +instrumentState.distortionFractionalInput1L;
+				let distortionFractionalInput2L = +instrumentState.distortionFractionalInput2L;
+				let distortionFractionalInput3L = +instrumentState.distortionFractionalInput3L;
+				let distortionFractionalInput1R = +instrumentState.distortionFractionalInput1R;
+				let distortionFractionalInput2R = +instrumentState.distortionFractionalInput2R;
+				let distortionFractionalInput3R = +instrumentState.distortionFractionalInput3R;
+				let distortionPrevInputL = +instrumentState.distortionPrevInputL;
+                let distortionPrevInputR = +instrumentState.distortionPrevInputR;
+				let distortionNextOutputL = +instrumentState.distortionNextOutputL;
+                let distortionNextOutputR = +instrumentState.distortionNextOutputR;`,
+                    [4]: `
+				let bitcrusherPrevInputL = +instrumentState.bitcrusherPrevInputL;
+				let bitcrusherCurrentOutputL = +instrumentState.bitcrusherCurrentOutputL;
+				let bitcrusherPrevInputR = +instrumentState.bitcrusherPrevInputR;
+				let bitcrusherCurrentOutputR = +instrumentState.bitcrusherCurrentOutputR;
 				let bitcrusherPhase = +instrumentState.bitcrusherPhase;
 				let bitcrusherPhaseDelta = +instrumentState.bitcrusherPhaseDelta;
 				const bitcrusherPhaseDeltaScale = +instrumentState.bitcrusherPhaseDeltaScale;
 				let bitcrusherScale = +instrumentState.bitcrusherScale;
 				const bitcrusherScaleScale = +instrumentState.bitcrusherScaleScale;
 				let bitcrusherFoldLevel = +instrumentState.bitcrusherFoldLevel;
-				const bitcrusherFoldLevelScale = +instrumentState.bitcrusherFoldLevelScale;`;
-                }
-                if (usesLinearVolume) {
-                    effectsSource += `
+				const bitcrusherFoldLevelScale = +instrumentState.bitcrusherFoldLevelScale;`,
+                    [12]: `
                     let volumeLinear = +instrumentState.volumeLinear;
                     let volumeLinearDelta = +instrumentState.volumeLinearDelta;
-                    let volumeLinearRange = +Config.volumeLinearRange;
-                `;
-                }
-                if (usesEqFilter) {
-                    effectsSource += `
-				
-				let filters = instrumentState.eqFilters;
-				const filterCount = instrumentState.eqFilterCount|0;
-				let initialFilterInput1 = +instrumentState.initialEqFilterInput1;
-				let initialFilterInput2 = +instrumentState.initialEqFilterInput2;
-				const applyFilters = Synth.applyFilters;`;
-                }
-                effectsSource += `
-				
-				let eqFilterVolume = +instrumentState.eqFilterVolume;
-				const eqFilterVolumeDelta = +instrumentState.eqFilterVolumeDelta;`;
-                if (usesPanning) {
-                    effectsSource += `
-				
+                    let volumeLinearRange = +Config.volumeLinearRange;`,
+                    [2]: `
 				const panningMask = synth.panningDelayBufferMask >>> 0;
-				const panningDelayLine = instrumentState.panningDelayLine;
+				const panningDelayLineL = instrumentState.panningDelayLineL;
+                const panningDelayLineR = instrumentState.panningDelayLineR;
 				let panningDelayPos = instrumentState.panningDelayPos & panningMask;
 				let   panningVolumeL      = +instrumentState.panningVolumeL;
 				let   panningVolumeR      = +instrumentState.panningVolumeR;
@@ -21401,11 +21579,8 @@ li.select2-results__option[role=group] > strong:hover {
 				let   panningOffsetL      = +instrumentState.panningOffsetL;
 				let   panningOffsetR      = +instrumentState.panningOffsetR;
 				const panningOffsetDeltaL = 1.0 - instrumentState.panningOffsetDeltaL;
-				const panningOffsetDeltaR = 1.0 - instrumentState.panningOffsetDeltaR;`;
-                }
-                if (usesChorus) {
-                    effectsSource += `
-				
+				const panningOffsetDeltaR = 1.0 - instrumentState.panningOffsetDeltaR;`,
+                    [1]: `
 				const chorusMask = synth.chorusDelayBufferMask >>> 0;
 				const chorusDelayLineL = instrumentState.chorusDelayLineL;
 				const chorusDelayLineR = instrumentState.chorusDelayLineR;
@@ -21445,11 +21620,8 @@ li.select2-results__option[role=group] > strong:hover {
 				const chorusTap2Delta = (chorusTap2End - chorusTap2Index) / runLength;
 				const chorusTap3Delta = (chorusTap3End - chorusTap3Index) / runLength;
 				const chorusTap4Delta = (chorusTap4End - chorusTap4Index) / runLength;
-				const chorusTap5Delta = (chorusTap5End - chorusTap5Index) / runLength;`;
-                }
-                if (usesEcho) {
-                    effectsSource += `
-				
+				const chorusTap5Delta = (chorusTap5End - chorusTap5Index) / runLength;`,
+                    [6]: `
 				let echoMult = +instrumentState.echoMult;
 				const echoMultDelta = +instrumentState.echoMultDelta;
 				
@@ -21470,11 +21642,8 @@ li.select2-results__option[role=group] > strong:hover {
 				let echoShelfSampleL = +instrumentState.echoShelfSampleL;
 				let echoShelfSampleR = +instrumentState.echoShelfSampleR;
 				let echoShelfPrevInputL = +instrumentState.echoShelfPrevInputL;
-				let echoShelfPrevInputR = +instrumentState.echoShelfPrevInputR;`;
-                }
-                if (usesReverb) {
-                    effectsSource += `
-				
+				let echoShelfPrevInputR = +instrumentState.echoShelfPrevInputR;`,
+                    [0]: `
 				const reverbMask = Config.reverbDelayBufferMask >>> 0; //TODO: Dynamic reverb buffer size.
 				const reverbDelayLine = instrumentState.reverbDelayLine;
 				instrumentState.reverbDelayLineDirty = true;
@@ -21493,308 +21662,307 @@ li.select2-results__option[role=group] > strong:hover {
 				let reverbShelfPrevInput0 = +instrumentState.reverbShelfPrevInput0;
 				let reverbShelfPrevInput1 = +instrumentState.reverbShelfPrevInput1;
 				let reverbShelfPrevInput2 = +instrumentState.reverbShelfPrevInput2;
-				let reverbShelfPrevInput3 = +instrumentState.reverbShelfPrevInput3;`;
-                }
-                effectsSource += `
-				
+				let reverbShelfPrevInput3 = +instrumentState.reverbShelfPrevInput3;`,
+                    final: `
+                // The eq filter volume is also used to fade out the instrument state, so always include it.
+                let eqFilterVolume = +instrumentState.eqFilterVolume;
+				const eqFilterVolumeDelta = +instrumentState.eqFilterVolumeDelta;`,
+                };
+                const sampleStage = {
+                    init: `
 				const stopIndex = bufferIndex + runLength;
 				for (let sampleIndex = bufferIndex; sampleIndex < stopIndex; sampleIndex++) {
 					let sample = tempMonoInstrumentSampleBuffer[sampleIndex];
-					tempMonoInstrumentSampleBuffer[sampleIndex] = 0.0;`;
-                if (usesDistortion) {
-                    effectsSource += `
-					
-					const distortionReverse = 1.0 - distortion;
-					const distortionNextInput = sample * distortionDrive;
-					sample = distortionNextOutput;
-					distortionNextOutput = distortionNextInput / (distortionReverse * Math.abs(distortionNextInput) + distortion);
-					distortionFractionalInput1 = distortionFractionalDelayG1 * distortionNextInput + distortionPrevInput - distortionFractionalDelayG1 * distortionFractionalInput1;
-					distortionFractionalInput2 = distortionFractionalDelayG2 * distortionNextInput + distortionPrevInput - distortionFractionalDelayG2 * distortionFractionalInput2;
-					distortionFractionalInput3 = distortionFractionalDelayG3 * distortionNextInput + distortionPrevInput - distortionFractionalDelayG3 * distortionFractionalInput3;
-					const distortionOutput1 = distortionFractionalInput1 / (distortionReverse * Math.abs(distortionFractionalInput1) + distortion);
-					const distortionOutput2 = distortionFractionalInput2 / (distortionReverse * Math.abs(distortionFractionalInput2) + distortion);
-					const distortionOutput3 = distortionFractionalInput3 / (distortionReverse * Math.abs(distortionFractionalInput3) + distortion);
-					distortionNextOutput += distortionOutput1 * distortionNextOutputWeight1 + distortionOutput2 * distortionNextOutputWeight2 + distortionOutput3 * distortionNextOutputWeight3;
-					sample += distortionOutput1 * distortionPrevOutputWeight1 + distortionOutput2 * distortionPrevOutputWeight2 + distortionOutput3 * distortionPrevOutputWeight3;
-					sample *= distortionOversampleCompensation;
-					distortionPrevInput = distortionNextInput;
-					distortion += distortionDelta;
-					distortionDrive += distortionDriveDelta;`;
+					tempMonoInstrumentSampleBuffer[sampleIndex] = 0.0;
+                // The eq filter volume is also used to fade out the instrument state, so always include it.
+                //Also, this might mess with the sound? If it does I'll include a different stage for the required EQ, probably.
+                sample *= eqFilterVolume;
+				eqFilterVolume += eqFilterVolumeDelta;
+                let sampleL = sample;
+                let sampleR = sample;`,
+                    eqFilter: `
+                const inputSampleL = sampleL;
+                const inputSampleR = sampleR;
+                sampleL = applyFilters(inputSampleL, initialFilterInput1L, initialFilterInput2L, filterCount, filtersL);
+                sampleR = applyFilters(inputSampleR, initialFilterInput1R, initialFilterInput2R, filterCount, filtersR);
+                initialFilterInput2L = initialFilterInput1L;
+                initialFilterInput2R = initialFilterInput1R;
+                initialFilterInput1L = inputSampleL;
+                initialFilterInput1R = inputSampleR;`,
+                    [3]: `
+                const distortionReverse = 1.0 - distortion;
+                const distortionNextInputL = sampleL * distortionDrive;
+                const distortionNextInputR = sampleR * distortionDrive;
+                sampleL = distortionNextOutputL;
+                sampleR = distortionNextOutputR;
+                distortionNextOutputL = distortionNextInputL / (distortionReverse * Math.abs(distortionNextInputL) + distortion);
+                distortionNextOutputR = distortionNextInputR / (distortionReverse * Math.abs(distortionNextInputR) + distortion);
+                distortionFractionalInput1L = distortionFractionalDelayG1 * distortionNextInputL + distortionPrevInputL - distortionFractionalDelayG1 * distortionFractionalInput1L;
+                distortionFractionalInput2L = distortionFractionalDelayG2 * distortionNextInputL + distortionPrevInputL - distortionFractionalDelayG2 * distortionFractionalInput2L;
+                distortionFractionalInput3L = distortionFractionalDelayG3 * distortionNextInputL + distortionPrevInputL - distortionFractionalDelayG3 * distortionFractionalInput3L;
+                distortionFractionalInput1R = distortionFractionalDelayG1 * distortionNextInputR + distortionPrevInputR - distortionFractionalDelayG1 * distortionFractionalInput1R;
+                distortionFractionalInput2R = distortionFractionalDelayG2 * distortionNextInputR + distortionPrevInputR - distortionFractionalDelayG2 * distortionFractionalInput2R;
+                distortionFractionalInput3R = distortionFractionalDelayG3 * distortionNextInputR + distortionPrevInputR - distortionFractionalDelayG3 * distortionFractionalInput3R;
+                const distortionOutput1L = distortionFractionalInput1L / (distortionReverse * Math.abs(distortionFractionalInput1L) + distortion);
+                const distortionOutput2L = distortionFractionalInput2L / (distortionReverse * Math.abs(distortionFractionalInput2L) + distortion);
+                const distortionOutput3L = distortionFractionalInput3L / (distortionReverse * Math.abs(distortionFractionalInput3L) + distortion);
+                const distortionOutput1R = distortionFractionalInput1R / (distortionReverse * Math.abs(distortionFractionalInput1R) + distortion);
+                const distortionOutput2R = distortionFractionalInput2R / (distortionReverse * Math.abs(distortionFractionalInput2R) + distortion);
+                const distortionOutput3R = distortionFractionalInput3R / (distortionReverse * Math.abs(distortionFractionalInput3R) + distortion);
+                distortionNextOutputL += distortionOutput1L * distortionNextOutputWeight1 + distortionOutput2L * distortionNextOutputWeight2 + distortionOutput3L * distortionNextOutputWeight3;
+                distortionNextOutputR += distortionOutput1R * distortionNextOutputWeight1 + distortionOutput2R * distortionNextOutputWeight2 + distortionOutput3R * distortionNextOutputWeight3;
+                sampleL += distortionOutput1L * distortionPrevOutputWeight1 + distortionOutput2L * distortionPrevOutputWeight2 + distortionOutput3L * distortionPrevOutputWeight3;
+                sampleL *= distortionOversampleCompensation;
+                sampleR += distortionOutput1R * distortionPrevOutputWeight1 + distortionOutput2R * distortionPrevOutputWeight2 + distortionOutput3R * distortionPrevOutputWeight3;
+                sampleR *= distortionOversampleCompensation;
+                distortionPrevInputL = distortionNextInputL;
+                distortionPrevInputR = distortionNextInputR;
+                distortion += distortionDelta;
+                distortionDrive += distortionDriveDelta;`,
+                    [4]: `
+                bitcrusherPhase += bitcrusherPhaseDelta;
+                if (bitcrusherPhase < 1.0) {
+                    bitcrusherPrevInputL = sampleL;
+                    bitcrusherPrevInputR = sampleR;
+                    sampleL = bitcrusherCurrentOutputL;
+                    sampleR = bitcrusherCurrentOutputR;
+                } else {
+                    bitcrusherPhase = bitcrusherPhase % 1.0;
+                    const ratio = bitcrusherPhase / bitcrusherPhaseDelta;
+                    
+                    const lerpedInputL = sampleL + (bitcrusherPrevInputL - sampleL) * ratio;
+                    const lerpedInputR = sampleR + (bitcrusherPrevInputR - sampleR) * ratio;
+                    bitcrusherPrevInputL = sampleL;
+                    bitcrusherPrevInputR = sampleR;
+                    
+                    const bitcrusherWrapLevel = bitcrusherFoldLevel * 4.0;
+                    const wrappedSampleL = (((lerpedInputL + bitcrusherFoldLevel) % bitcrusherWrapLevel) + bitcrusherWrapLevel) % bitcrusherWrapLevel;
+                    const wrappedSampleR = (((lerpedInputR + bitcrusherFoldLevel) % bitcrusherWrapLevel) + bitcrusherWrapLevel) % bitcrusherWrapLevel;
+                    const foldedSampleL = bitcrusherFoldLevel - Math.abs(bitcrusherFoldLevel * 2.0 - wrappedSampleL);
+                    const foldedSampleR = bitcrusherFoldLevel - Math.abs(bitcrusherFoldLevel * 2.0 - wrappedSampleR);
+                    const scaledSampleL = foldedSampleL / bitcrusherScale;
+                    const scaledSampleR = foldedSampleR / bitcrusherScale;
+                    const oldValueL = bitcrusherCurrentOutputL;
+                    const newValueL = (((scaledSampleL > 0 ? scaledSampleL + 1 : scaledSampleL)|0)-.5) * bitcrusherScale;
+                    const oldValueR = bitcrusherCurrentOutputR;
+                    const newValueR = (((scaledSampleR > 0 ? scaledSampleR + 1 : scaledSampleR)|0)-.5) * bitcrusherScale;
+                    
+                    sampleL = oldValueL + (newValueL - oldValueL) * ratio;
+                    sampleR = oldValueR + (newValueR - oldValueR) * ratio;
+                    bitcrusherCurrentOutputL = newValueL;
+                    bitcrusherCurrentOutputR = newValueR;
                 }
-                if (usesBitcrusher) {
-                    effectsSource += `
-					
-					bitcrusherPhase += bitcrusherPhaseDelta;
-					if (bitcrusherPhase < 1.0) {
-						bitcrusherPrevInput = sample;
-						sample = bitcrusherCurrentOutput;
-					} else {
-						bitcrusherPhase = bitcrusherPhase % 1.0;
-						const ratio = bitcrusherPhase / bitcrusherPhaseDelta;
-						
-						const lerpedInput = sample + (bitcrusherPrevInput - sample) * ratio;
-						bitcrusherPrevInput = sample;
-						
-						const bitcrusherWrapLevel = bitcrusherFoldLevel * 4.0;
-						const wrappedSample = (((lerpedInput + bitcrusherFoldLevel) % bitcrusherWrapLevel) + bitcrusherWrapLevel) % bitcrusherWrapLevel;
-						const foldedSample = bitcrusherFoldLevel - Math.abs(bitcrusherFoldLevel * 2.0 - wrappedSample);
-						const scaledSample = foldedSample / bitcrusherScale;
-						const oldValue = bitcrusherCurrentOutput;
-						const newValue = (((scaledSample > 0 ? scaledSample + 1 : scaledSample)|0)-.5) * bitcrusherScale;
-						
-						sample = oldValue + (newValue - oldValue) * ratio;
-						bitcrusherCurrentOutput = newValue;
-					}
-					bitcrusherPhaseDelta *= bitcrusherPhaseDeltaScale;
-					bitcrusherScale *= bitcrusherScaleScale;
-					bitcrusherFoldLevel *= bitcrusherFoldLevelScale;`;
-                }
-                if (usesLinearVolume) {
-                    effectsSource += `
-                    volumeLinear += volumeLinearDelta;
-                    sample = sample * (volumeLinear / volumeLinearRange)
-                `;
-                }
-                if (usesEqFilter) {
-                    effectsSource += `
-					
-					const inputSample = sample;
-					sample = applyFilters(inputSample, initialFilterInput1, initialFilterInput2, filterCount, filters);
-					initialFilterInput2 = initialFilterInput1;
-					initialFilterInput1 = inputSample;`;
-                }
-                effectsSource += `
-					
-					sample *= eqFilterVolume;
-					eqFilterVolume += eqFilterVolumeDelta;`;
-                if (usesPanning) {
-                    effectsSource += `
-					
-					panningDelayLine[panningDelayPos] = sample;
-					const panningRatioL  = panningOffsetL % 1;
-					const panningRatioR  = panningOffsetR % 1;
-					const panningTapLA   = panningDelayLine[(panningOffsetL) & panningMask];
-					const panningTapLB   = panningDelayLine[(panningOffsetL + 1) & panningMask];
-					const panningTapRA   = panningDelayLine[(panningOffsetR) & panningMask];
-					const panningTapRB   = panningDelayLine[(panningOffsetR + 1) & panningMask];
-					const panningTapL    = panningTapLA + (panningTapLB - panningTapLA) * panningRatioL;
-					const panningTapR    = panningTapRA + (panningTapRB - panningTapRA) * panningRatioR;
-					let sampleL = panningTapL * panningVolumeL;
-					let sampleR = panningTapR * panningVolumeR;
-					panningDelayPos = (panningDelayPos + 1) & panningMask;
-					panningVolumeL += panningVolumeDeltaL;
-					panningVolumeR += panningVolumeDeltaR;
-					panningOffsetL += panningOffsetDeltaL;
-					panningOffsetR += panningOffsetDeltaR;`;
-                }
-                else {
-                    effectsSource += `
-					
-					let sampleL = sample;
-					let sampleR = sample;`;
-                }
-                if (usesChorus) {
-                    effectsSource += `
-					
-					const chorusTap0Ratio = chorusTap0Index % 1;
-					const chorusTap1Ratio = chorusTap1Index % 1;
-					const chorusTap2Ratio = chorusTap2Index % 1;
-					const chorusTap3Ratio = chorusTap3Index % 1;
-					const chorusTap4Ratio = chorusTap4Index % 1;
-					const chorusTap5Ratio = chorusTap5Index % 1;
-					const chorusTap0A = chorusDelayLineL[(chorusTap0Index) & chorusMask];
-					const chorusTap0B = chorusDelayLineL[(chorusTap0Index + 1) & chorusMask];
-					const chorusTap1A = chorusDelayLineL[(chorusTap1Index) & chorusMask];
-					const chorusTap1B = chorusDelayLineL[(chorusTap1Index + 1) & chorusMask];
-					const chorusTap2A = chorusDelayLineL[(chorusTap2Index) & chorusMask];
-					const chorusTap2B = chorusDelayLineL[(chorusTap2Index + 1) & chorusMask];
-					const chorusTap3A = chorusDelayLineR[(chorusTap3Index) & chorusMask];
-					const chorusTap3B = chorusDelayLineR[(chorusTap3Index + 1) & chorusMask];
-					const chorusTap4A = chorusDelayLineR[(chorusTap4Index) & chorusMask];
-					const chorusTap4B = chorusDelayLineR[(chorusTap4Index + 1) & chorusMask];
-					const chorusTap5A = chorusDelayLineR[(chorusTap5Index) & chorusMask];
-					const chorusTap5B = chorusDelayLineR[(chorusTap5Index + 1) & chorusMask];
-					const chorusTap0 = chorusTap0A + (chorusTap0B - chorusTap0A) * chorusTap0Ratio;
-					const chorusTap1 = chorusTap1A + (chorusTap1B - chorusTap1A) * chorusTap1Ratio;
-					const chorusTap2 = chorusTap2A + (chorusTap2B - chorusTap2A) * chorusTap2Ratio;
-					const chorusTap3 = chorusTap3A + (chorusTap3B - chorusTap3A) * chorusTap3Ratio;
-					const chorusTap4 = chorusTap4A + (chorusTap4B - chorusTap4A) * chorusTap4Ratio;
-					const chorusTap5 = chorusTap5A + (chorusTap5B - chorusTap5A) * chorusTap5Ratio;
-					chorusDelayLineL[chorusDelayPos] = sampleL * delayInputMult;
-					chorusDelayLineR[chorusDelayPos] = sampleR * delayInputMult;
-					sampleL = chorusCombinedMult * (sampleL + chorusVoiceMult * (chorusTap1 - chorusTap0 - chorusTap2));
-					sampleR = chorusCombinedMult * (sampleR + chorusVoiceMult * (chorusTap4 - chorusTap3 - chorusTap5));
-					chorusDelayPos = (chorusDelayPos + 1) & chorusMask;
-					chorusTap0Index += chorusTap0Delta;
-					chorusTap1Index += chorusTap1Delta;
-					chorusTap2Index += chorusTap2Delta;
-					chorusTap3Index += chorusTap3Delta;
-					chorusTap4Index += chorusTap4Delta;
-					chorusTap5Index += chorusTap5Delta;
-					chorusVoiceMult += chorusVoiceMultDelta;
-					chorusCombinedMult += chorusCombinedMultDelta;`;
-                }
-                if (usesEcho) {
-                    effectsSource += `
-					
-					const echoTapStartIndex = (echoDelayPos + echoDelayOffsetStart) & echoMask;
-					const echoTapEndIndex   = (echoDelayPos + echoDelayOffsetEnd  ) & echoMask;
-					const echoTapStartL = echoDelayLineL[echoTapStartIndex];
-					const echoTapEndL   = echoDelayLineL[echoTapEndIndex];
-					const echoTapStartR = echoDelayLineR[echoTapStartIndex];
-					const echoTapEndR   = echoDelayLineR[echoTapEndIndex];
-					const echoTapL = (echoTapStartL + (echoTapEndL - echoTapStartL) * echoDelayOffsetRatio) * echoMult;
-					const echoTapR = (echoTapStartR + (echoTapEndR - echoTapStartR) * echoDelayOffsetRatio) * echoMult;
-					
-					echoShelfSampleL = echoShelfB0 * echoTapL + echoShelfB1 * echoShelfPrevInputL - echoShelfA1 * echoShelfSampleL;
-					echoShelfSampleR = echoShelfB0 * echoTapR + echoShelfB1 * echoShelfPrevInputR - echoShelfA1 * echoShelfSampleR;
-					echoShelfPrevInputL = echoTapL;
-					echoShelfPrevInputR = echoTapR;
-					sampleL += echoShelfSampleL;
-					sampleR += echoShelfSampleR;
-					
-					echoDelayLineL[echoDelayPos] = sampleL * delayInputMult;
-					echoDelayLineR[echoDelayPos] = sampleR * delayInputMult;
-					echoDelayPos = (echoDelayPos + 1) & echoMask;
-					echoDelayOffsetRatio += echoDelayOffsetRatioDelta;
-					echoMult += echoMultDelta;
-                    `;
-                }
-                if (usesReverb) {
-                    effectsSource += `
-					
-					// Reverb, implemented using a feedback delay network with a Hadamard matrix and lowpass filters.
-					// good ratios:    0.555235 + 0.618033 + 0.818 +   1.0 = 2.991268
-					// Delay lengths:  3041     + 3385     + 4481  +  5477 = 16384 = 2^14
-					// Buffer offsets: 3041    -> 6426   -> 10907 -> 16384
-					const reverbDelayPos1 = (reverbDelayPos +  3041) & reverbMask;
-					const reverbDelayPos2 = (reverbDelayPos +  6426) & reverbMask;
-					const reverbDelayPos3 = (reverbDelayPos + 10907) & reverbMask;
-					const reverbSample0 = (reverbDelayLine[reverbDelayPos]);
-					const reverbSample1 = reverbDelayLine[reverbDelayPos1];
-					const reverbSample2 = reverbDelayLine[reverbDelayPos2];
-					const reverbSample3 = reverbDelayLine[reverbDelayPos3];
-					const reverbTemp0 = -(reverbSample0 + sampleL) + reverbSample1;
-					const reverbTemp1 = -(reverbSample0 + sampleR) - reverbSample1;
-					const reverbTemp2 = -reverbSample2 + reverbSample3;
-					const reverbTemp3 = -reverbSample2 - reverbSample3;
-					const reverbShelfInput0 = (reverbTemp0 + reverbTemp2) * reverb;
-					const reverbShelfInput1 = (reverbTemp1 + reverbTemp3) * reverb;
-					const reverbShelfInput2 = (reverbTemp0 - reverbTemp2) * reverb;
-					const reverbShelfInput3 = (reverbTemp1 - reverbTemp3) * reverb;
-					reverbShelfSample0 = reverbShelfB0 * reverbShelfInput0 + reverbShelfB1 * reverbShelfPrevInput0 - reverbShelfA1 * reverbShelfSample0;
-					reverbShelfSample1 = reverbShelfB0 * reverbShelfInput1 + reverbShelfB1 * reverbShelfPrevInput1 - reverbShelfA1 * reverbShelfSample1;
-					reverbShelfSample2 = reverbShelfB0 * reverbShelfInput2 + reverbShelfB1 * reverbShelfPrevInput2 - reverbShelfA1 * reverbShelfSample2;
-					reverbShelfSample3 = reverbShelfB0 * reverbShelfInput3 + reverbShelfB1 * reverbShelfPrevInput3 - reverbShelfA1 * reverbShelfSample3;
-					reverbShelfPrevInput0 = reverbShelfInput0;
-					reverbShelfPrevInput1 = reverbShelfInput1;
-					reverbShelfPrevInput2 = reverbShelfInput2;
-					reverbShelfPrevInput3 = reverbShelfInput3;
-					reverbDelayLine[reverbDelayPos1] = reverbShelfSample0 * delayInputMult;
-					reverbDelayLine[reverbDelayPos2] = reverbShelfSample1 * delayInputMult;
-					reverbDelayLine[reverbDelayPos3] = reverbShelfSample2 * delayInputMult;
-					reverbDelayLine[reverbDelayPos ] = reverbShelfSample3 * delayInputMult;
-					reverbDelayPos = (reverbDelayPos + 1) & reverbMask;
-					sampleL += reverbSample1 + reverbSample2 + reverbSample3;
-					sampleR += reverbSample0 + reverbSample2 - reverbSample3;
-					reverb += reverbDelta;`;
-                }
-                effectsSource += `
-					
-					outputDataL[sampleIndex] += sampleL * mixVolume;
-					outputDataR[sampleIndex] += sampleR * mixVolume;
-					mixVolume += mixVolumeDelta;`;
-                if (usesDelays) {
-                    effectsSource += `
-					
-					delayInputMult += delayInputMultDelta;`;
-                }
-                effectsSource += `
+                bitcrusherPhaseDelta *= bitcrusherPhaseDeltaScale;
+                bitcrusherScale *= bitcrusherScaleScale;
+                bitcrusherFoldLevel *= bitcrusherFoldLevelScale;`,
+                    [12]: `
+                volumeLinear += volumeLinearDelta;
+                sampleL *= (volumeLinear / volumeLinearRange)
+                sampleR *= (volumeLinear / volumeLinearRange)`,
+                    [2]: `
+                panningDelayLineL[panningDelayPos] = sampleL;
+                panningDelayLineR[panningDelayPos] = sampleR;
+                const panningRatioL  = panningOffsetL % 1;
+                const panningRatioR  = panningOffsetR % 1;
+                const panningTapLA   = panningDelayLineL[(panningOffsetL) & panningMask];
+                const panningTapLB   = panningDelayLineL[(panningOffsetL + 1) & panningMask];
+                const panningTapRA   = panningDelayLineR[(panningOffsetR) & panningMask];
+                const panningTapRB   = panningDelayLineR[(panningOffsetR + 1) & panningMask];
+                const panningTapL    = panningTapLA + (panningTapLB - panningTapLA) * panningRatioL;
+                const panningTapR    = panningTapRA + (panningTapRB - panningTapRA) * panningRatioR;
+                sampleL = panningTapL * panningVolumeL;
+                sampleR = panningTapR * panningVolumeR;
+                panningDelayPos = (panningDelayPos + 1) & panningMask;
+                panningVolumeL += panningVolumeDeltaL;
+                panningVolumeR += panningVolumeDeltaR;
+                panningOffsetL += panningOffsetDeltaL;
+                panningOffsetR += panningOffsetDeltaR;`,
+                    [1]: `
+                const chorusTap0Ratio = chorusTap0Index % 1;
+                const chorusTap1Ratio = chorusTap1Index % 1;
+                const chorusTap2Ratio = chorusTap2Index % 1;
+                const chorusTap3Ratio = chorusTap3Index % 1;
+                const chorusTap4Ratio = chorusTap4Index % 1;
+                const chorusTap5Ratio = chorusTap5Index % 1;
+                const chorusTap0A = chorusDelayLineL[(chorusTap0Index) & chorusMask];
+                const chorusTap0B = chorusDelayLineL[(chorusTap0Index + 1) & chorusMask];
+                const chorusTap1A = chorusDelayLineL[(chorusTap1Index) & chorusMask];
+                const chorusTap1B = chorusDelayLineL[(chorusTap1Index + 1) & chorusMask];
+                const chorusTap2A = chorusDelayLineL[(chorusTap2Index) & chorusMask];
+                const chorusTap2B = chorusDelayLineL[(chorusTap2Index + 1) & chorusMask];
+                const chorusTap3A = chorusDelayLineR[(chorusTap3Index) & chorusMask];
+                const chorusTap3B = chorusDelayLineR[(chorusTap3Index + 1) & chorusMask];
+                const chorusTap4A = chorusDelayLineR[(chorusTap4Index) & chorusMask];
+                const chorusTap4B = chorusDelayLineR[(chorusTap4Index + 1) & chorusMask];
+                const chorusTap5A = chorusDelayLineR[(chorusTap5Index) & chorusMask];
+                const chorusTap5B = chorusDelayLineR[(chorusTap5Index + 1) & chorusMask];
+                const chorusTap0 = chorusTap0A + (chorusTap0B - chorusTap0A) * chorusTap0Ratio;
+                const chorusTap1 = chorusTap1A + (chorusTap1B - chorusTap1A) * chorusTap1Ratio;
+                const chorusTap2 = chorusTap2A + (chorusTap2B - chorusTap2A) * chorusTap2Ratio;
+                const chorusTap3 = chorusTap3A + (chorusTap3B - chorusTap3A) * chorusTap3Ratio;
+                const chorusTap4 = chorusTap4A + (chorusTap4B - chorusTap4A) * chorusTap4Ratio;
+                const chorusTap5 = chorusTap5A + (chorusTap5B - chorusTap5A) * chorusTap5Ratio;
+                chorusDelayLineL[chorusDelayPos] = sampleL * delayInputMult;
+                chorusDelayLineR[chorusDelayPos] = sampleR * delayInputMult;
+                sampleL = chorusCombinedMult * (sampleL + chorusVoiceMult * (chorusTap1 - chorusTap0 - chorusTap2));
+                sampleR = chorusCombinedMult * (sampleR + chorusVoiceMult * (chorusTap4 - chorusTap3 - chorusTap5));
+                chorusDelayPos = (chorusDelayPos + 1) & chorusMask;
+                chorusTap0Index += chorusTap0Delta;
+                chorusTap1Index += chorusTap1Delta;
+                chorusTap2Index += chorusTap2Delta;
+                chorusTap3Index += chorusTap3Delta;
+                chorusTap4Index += chorusTap4Delta;
+                chorusTap5Index += chorusTap5Delta;
+                chorusVoiceMult += chorusVoiceMultDelta;
+                chorusCombinedMult += chorusCombinedMultDelta;`,
+                    [6]: `
+                const echoTapStartIndex = (echoDelayPos + echoDelayOffsetStart) & echoMask;
+                const echoTapEndIndex   = (echoDelayPos + echoDelayOffsetEnd  ) & echoMask;
+                const echoTapStartL = echoDelayLineL[echoTapStartIndex];
+                const echoTapEndL   = echoDelayLineL[echoTapEndIndex];
+                const echoTapStartR = echoDelayLineR[echoTapStartIndex];
+                const echoTapEndR   = echoDelayLineR[echoTapEndIndex];
+                const echoTapL = (echoTapStartL + (echoTapEndL - echoTapStartL) * echoDelayOffsetRatio) * echoMult;
+                const echoTapR = (echoTapStartR + (echoTapEndR - echoTapStartR) * echoDelayOffsetRatio) * echoMult;
+                
+                echoShelfSampleL = echoShelfB0 * echoTapL + echoShelfB1 * echoShelfPrevInputL - echoShelfA1 * echoShelfSampleL;
+                echoShelfSampleR = echoShelfB0 * echoTapR + echoShelfB1 * echoShelfPrevInputR - echoShelfA1 * echoShelfSampleR;
+                echoShelfPrevInputL = echoTapL;
+                echoShelfPrevInputR = echoTapR;
+                sampleL += echoShelfSampleL;
+                sampleR += echoShelfSampleR;
+                
+                echoDelayLineL[echoDelayPos] = sampleL * delayInputMult;
+                echoDelayLineR[echoDelayPos] = sampleR * delayInputMult;
+                echoDelayPos = (echoDelayPos + 1) & echoMask;
+                echoDelayOffsetRatio += echoDelayOffsetRatioDelta;
+                echoMult += echoMultDelta;`,
+                    [0]: `
+                // Reverb, implemented using a feedback delay network with a Hadamard matrix and lowpass filters.
+                // good ratios:    0.555235 + 0.618033 + 0.818 +   1.0 = 2.991268
+                // Delay lengths:  3041     + 3385     + 4481  +  5477 = 16384 = 2^14
+                // Buffer offsets: 3041    -> 6426   -> 10907 -> 16384
+                const reverbDelayPos1 = (reverbDelayPos +  3041) & reverbMask;
+                const reverbDelayPos2 = (reverbDelayPos +  6426) & reverbMask;
+                const reverbDelayPos3 = (reverbDelayPos + 10907) & reverbMask;
+                const reverbSample0 = (reverbDelayLine[reverbDelayPos]);
+                const reverbSample1 = reverbDelayLine[reverbDelayPos1];
+                const reverbSample2 = reverbDelayLine[reverbDelayPos2];
+                const reverbSample3 = reverbDelayLine[reverbDelayPos3];
+                const reverbTemp0 = -(reverbSample0 + sampleL) + reverbSample1;
+                const reverbTemp1 = -(reverbSample0 + sampleR) - reverbSample1;
+                const reverbTemp2 = -reverbSample2 + reverbSample3;
+                const reverbTemp3 = -reverbSample2 - reverbSample3;
+                const reverbShelfInput0 = (reverbTemp0 + reverbTemp2) * reverb;
+                const reverbShelfInput1 = (reverbTemp1 + reverbTemp3) * reverb;
+                const reverbShelfInput2 = (reverbTemp0 - reverbTemp2) * reverb;
+                const reverbShelfInput3 = (reverbTemp1 - reverbTemp3) * reverb;
+                reverbShelfSample0 = reverbShelfB0 * reverbShelfInput0 + reverbShelfB1 * reverbShelfPrevInput0 - reverbShelfA1 * reverbShelfSample0;
+                reverbShelfSample1 = reverbShelfB0 * reverbShelfInput1 + reverbShelfB1 * reverbShelfPrevInput1 - reverbShelfA1 * reverbShelfSample1;
+                reverbShelfSample2 = reverbShelfB0 * reverbShelfInput2 + reverbShelfB1 * reverbShelfPrevInput2 - reverbShelfA1 * reverbShelfSample2;
+                reverbShelfSample3 = reverbShelfB0 * reverbShelfInput3 + reverbShelfB1 * reverbShelfPrevInput3 - reverbShelfA1 * reverbShelfSample3;
+                reverbShelfPrevInput0 = reverbShelfInput0;
+                reverbShelfPrevInput1 = reverbShelfInput1;
+                reverbShelfPrevInput2 = reverbShelfInput2;
+                reverbShelfPrevInput3 = reverbShelfInput3;
+                reverbDelayLine[reverbDelayPos1] = reverbShelfSample0 * delayInputMult;
+                reverbDelayLine[reverbDelayPos2] = reverbShelfSample1 * delayInputMult;
+                reverbDelayLine[reverbDelayPos3] = reverbShelfSample2 * delayInputMult;
+                reverbDelayLine[reverbDelayPos ] = reverbShelfSample3 * delayInputMult;
+                reverbDelayPos = (reverbDelayPos + 1) & reverbMask;
+                sampleL += reverbSample1 + reverbSample2 + reverbSample3;
+                sampleR += reverbSample0 + reverbSample2 - reverbSample3;
+                reverb += reverbDelta;`,
+                    final: `
+                outputDataL[sampleIndex] += sampleL * mixVolume;
+                outputDataR[sampleIndex] += sampleR * mixVolume;
+                mixVolume += mixVolumeDelta;`,
+                    delay: `
+                delayInputMult += delayInputMultDelta;`,
+                };
+                const saveStage = {
+                    init: `
 				}
-				
 				instrumentState.mixVolume = mixVolume;
 				instrumentState.eqFilterVolume = eqFilterVolume;
 				
 				// Avoid persistent denormal or NaN values in the delay buffers and filter history.
-				const epsilon = (1.0e-24);`;
-                if (usesDelays) {
-                    effectsSource += `
-				
-				instrumentState.delayInputMult = delayInputMult;`;
-                }
-                if (usesDistortion) {
-                    effectsSource += `
-				
+				const epsilon = (1.0e-24);`,
+                    [3]: `
 				instrumentState.distortion = distortion;
 				instrumentState.distortionDrive = distortionDrive;
 				
-				if (!Number.isFinite(distortionFractionalInput1) || Math.abs(distortionFractionalInput1) < epsilon) distortionFractionalInput1 = 0.0;
-				if (!Number.isFinite(distortionFractionalInput2) || Math.abs(distortionFractionalInput2) < epsilon) distortionFractionalInput2 = 0.0;
-				if (!Number.isFinite(distortionFractionalInput3) || Math.abs(distortionFractionalInput3) < epsilon) distortionFractionalInput3 = 0.0;
-				if (!Number.isFinite(distortionPrevInput) || Math.abs(distortionPrevInput < epsilon) distortionPrevInput = 0.0;
-				if (!Number.isFinite(distortionNextOutput) || Math.abs(distortionNextOutput) < epsilon) distortionNextOutput = 0.0;
+				if (!Number.isFinite(distortionFractionalInput1L) || Math.abs(distortionFractionalInput1L) < epsilon) distortionFractionalInput1L = 0.0;
+				if (!Number.isFinite(distortionFractionalInput2L) || Math.abs(distortionFractionalInput2L) < epsilon) distortionFractionalInput2L = 0.0;
+				if (!Number.isFinite(distortionFractionalInput3L) || Math.abs(distortionFractionalInput3L) < epsilon) distortionFractionalInput3L = 0.0;
+                if (!Number.isFinite(distortionFractionalInput1R) || Math.abs(distortionFractionalInput1R) < epsilon) distortionFractionalInput1R = 0.0;
+				if (!Number.isFinite(distortionFractionalInput2R) || Math.abs(distortionFractionalInput2R) < epsilon) distortionFractionalInput2R = 0.0;
+				if (!Number.isFinite(distortionFractionalInput3R) || Math.abs(distortionFractionalInput3R) < epsilon) distortionFractionalInput3R = 0.0;
+				if (!Number.isFinite(distortionPrevInputL) || Math.abs(distortionPrevInputL) < epsilon) distortionPrevInputL = 0.0;
+				if (!Number.isFinite(distortionNextOutputL) || Math.abs(distortionNextOutputL) < epsilon) distortionNextOutputL = 0.0;
+                if (!Number.isFinite(distortionPrevInputR) || Math.abs(distortionPrevInputR) < epsilon) distortionPrevInputR = 0.0;
+				if (!Number.isFinite(distortionNextOutputR) || Math.abs(distortionNextOutputR) < epsilon) distortionNextOutputR = 0.0;
 				
-				instrumentState.distortionFractionalInput1 = distortionFractionalInput1;
-				instrumentState.distortionFractionalInput2 = distortionFractionalInput2;
-				instrumentState.distortionFractionalInput3 = distortionFractionalInput3;
-				instrumentState.distortionPrevInput = distortionPrevInput;
-				instrumentState.distortionNextOutput = distortionNextOutput;`;
-                }
-                if (usesBitcrusher) {
-                    effectsSource += `
-					
-				if (Math.abs(bitcrusherPrevInput) < epsilon) bitcrusherPrevInput = 0.0;
-				if (Math.abs(bitcrusherCurrentOutput) < epsilon) bitcrusherCurrentOutput = 0.0;
-				instrumentState.bitcrusherPrevInput = bitcrusherPrevInput;
-				instrumentState.bitcrusherCurrentOutput = bitcrusherCurrentOutput;
+				instrumentState.distortionFractionalInput1L = distortionFractionalInput1L;
+				instrumentState.distortionFractionalInput2L = distortionFractionalInput2L;
+				instrumentState.distortionFractionalInput3L = distortionFractionalInput3L;
+                instrumentState.distortionFractionalInput1R = distortionFractionalInput1R;
+				instrumentState.distortionFractionalInput2R = distortionFractionalInput2R;
+				instrumentState.distortionFractionalInput3R = distortionFractionalInput3R;
+				instrumentState.distortionPrevInputL = distortionPrevInputL;
+                instrumentState.distortionPrevInputR = distortionPrevInputR;
+				instrumentState.distortionNextOutputL = distortionNextOutputL;
+                instrumentState.distortionNextOutputR = distortionNextOutputR;`,
+                    [4]: `
+				if (Math.abs(bitcrusherPrevInputL) < epsilon) bitcrusherPrevInputL = 0.0;
+                if (Math.abs(bitcrusherPrevInputR) < epsilon) bitcrusherPrevInputR = 0.0;
+				if (Math.abs(bitcrusherCurrentOutputL) < epsilon) bitcrusherCurrentOutputL = 0.0;
+                if (Math.abs(bitcrusherCurrentOutputR) < epsilon) bitcrusherCurrentOutputR = 0.0;
+				instrumentState.bitcrusherPrevInputL = bitcrusherPrevInputL;
+                instrumentState.bitcrusherPrevInputR = bitcrusherPrevInputR;
+				instrumentState.bitcrusherCurrentOutputL = bitcrusherCurrentOutputL;
+                instrumentState.bitcrusherCurrentOutputR = bitcrusherCurrentOutputR;
 				instrumentState.bitcrusherPhase = bitcrusherPhase;
 				instrumentState.bitcrusherPhaseDelta = bitcrusherPhaseDelta;
 				instrumentState.bitcrusherScale = bitcrusherScale;
-				instrumentState.bitcrusherFoldLevel = bitcrusherFoldLevel;`;
-                }
-                if (usesLinearVolume) {
-                    effectsSource += `
-                    instrumentState.volumeLinear = volumeLinear;
-                `;
-                }
-                if (usesEqFilter) {
-                    effectsSource += `
-					
-				synth.sanitizeFilters(filters);
+				instrumentState.bitcrusherFoldLevel = bitcrusherFoldLevel;`,
+                    [12]: `
+                instrumentState.volumeLinear = volumeLinear;`,
+                    eqFilter: `
+				synth.sanitizeFilters(filtersL);
+                synth.sanitizeFilters(filtersR);
 				// The filter input here is downstream from another filter so we
 				// better make sure it's safe too.
-				if (!(initialFilterInput1 < 100) || !(initialFilterInput2 < 100)) {
-					initialFilterInput1 = 0.0;
-					initialFilterInput2 = 0.0;
+				if (!(initialFilterInput1L < 100) || !(initialFilterInput2L < 100) || !(initialFilterInput1R < 100) || !(initialFilterInput2R < 100)) {
+					initialFilterInput1L = 0.0;
+					initialFilterInput2L = 0.0;
+                    initialFilterInput1R = 0.0;
+                    initialFilterInput2R = 0.0;
 				}
-				if (Math.abs(initialFilterInput1) < epsilon) initialFilterInput1 = 0.0;
-				if (Math.abs(initialFilterInput2) < epsilon) initialFilterInput2 = 0.0;
-				instrumentState.initialEqFilterInput1 = initialFilterInput1;
-				instrumentState.initialEqFilterInput2 = initialFilterInput2;`;
-                }
-                if (usesPanning) {
-                    effectsSource += `
-				
-				Synth.sanitizeDelayLine(panningDelayLine, panningDelayPos, panningMask);
-				instrumentState.panningDelayPos = panningDelayPos;
+				if (Math.abs(initialFilterInput1L) < epsilon) initialFilterInput1L = 0.0;
+				if (Math.abs(initialFilterInput2L) < epsilon) initialFilterInput2L = 0.0;
+                if (Math.abs(initialFilterInput1R) < epsilon) initialFilterInput1R = 0.0;
+				if (Math.abs(initialFilterInput2R) < epsilon) initialFilterInput2R = 0.0;
+                instrumentState.initialEqFilterInput1L = initialFilterInput1L;
+				instrumentState.initialEqFilterInput2L = initialFilterInput2L;
+                instrumentState.initialEqFilterInput1R = initialFilterInput1R;
+				instrumentState.initialEqFilterInput2R = initialFilterInput2R;`,
+                    [2]: `
+				Synth.sanitizeDelayLine(panningDelayLineL, panningDelayPos, panningMask);
+				Synth.sanitizeDelayLine(panningDelayLineR, panningDelayPos, panningMask);
+                instrumentState.panningDelayPos = panningDelayPos;
 				instrumentState.panningVolumeL = panningVolumeL;
 				instrumentState.panningVolumeR = panningVolumeR;
 				instrumentState.panningOffsetL = panningOffsetL;
-				instrumentState.panningOffsetR = panningOffsetR;`;
-                }
-                if (usesChorus) {
-                    effectsSource += `
-				
+				instrumentState.panningOffsetR = panningOffsetR;`,
+                    [1]: `
 				Synth.sanitizeDelayLine(chorusDelayLineL, chorusDelayPos, chorusMask);
 				Synth.sanitizeDelayLine(chorusDelayLineR, chorusDelayPos, chorusMask);
 				instrumentState.chorusPhase = chorusPhase;
 				instrumentState.chorusDelayPos = chorusDelayPos;
 				instrumentState.chorusVoiceMult = chorusVoiceMult;
-				instrumentState.chorusCombinedMult = chorusCombinedMult;`;
-                }
-                if (usesEcho) {
-                    effectsSource += `
-				
+				instrumentState.chorusCombinedMult = chorusCombinedMult;`,
+                    [6]: `
 				Synth.sanitizeDelayLine(echoDelayLineL, echoDelayPos, echoMask);
 				Synth.sanitizeDelayLine(echoDelayLineR, echoDelayPos, echoMask);
 				instrumentState.echoDelayPos = echoDelayPos;
@@ -21808,11 +21976,8 @@ li.select2-results__option[role=group] > strong:hover {
 				instrumentState.echoShelfSampleL = echoShelfSampleL;
 				instrumentState.echoShelfSampleR = echoShelfSampleR;
 				instrumentState.echoShelfPrevInputL = echoShelfPrevInputL;
-				instrumentState.echoShelfPrevInputR = echoShelfPrevInputR;`;
-                }
-                if (usesReverb) {
-                    effectsSource += `
-				
+				instrumentState.echoShelfPrevInputR = echoShelfPrevInputR;`,
+                    [0]: `
 				Synth.sanitizeDelayLine(reverbDelayLine, reverbDelayPos        , reverbMask);
 				Synth.sanitizeDelayLine(reverbDelayLine, reverbDelayPos +  3041, reverbMask);
 				Synth.sanitizeDelayLine(reverbDelayLine, reverbDelayPos +  6426, reverbMask);
@@ -21835,9 +22000,40 @@ li.select2-results__option[role=group] > strong:hover {
 				instrumentState.reverbShelfPrevInput0 = reverbShelfPrevInput0;
 				instrumentState.reverbShelfPrevInput1 = reverbShelfPrevInput1;
 				instrumentState.reverbShelfPrevInput2 = reverbShelfPrevInput2;
-				instrumentState.reverbShelfPrevInput3 = reverbShelfPrevInput3;`;
+				instrumentState.reverbShelfPrevInput3 = reverbShelfPrevInput3;`,
+                    final: "}",
+                    delay: `
+				instrumentState.delayInputMult = delayInputMult;`,
+                };
+                loadSource += loadStage.init;
+                sampleSource += sampleStage.init;
+                saveSource += saveStage.init;
+                if (usesDelays) {
+                    loadSource += loadStage.delay;
+                    sampleSource += sampleStage.delay;
+                    saveSource += saveStage.delay;
                 }
-                effectsSource += "}";
+                instrumentState.postProcessOrder.forEach((effectType) => {
+                    if (!effectsIncludeEffectType(instrumentState.effects, effectType))
+                        return;
+                    if (effectType in loadStage)
+                        loadSource += loadStage[effectType];
+                    if (effectType in sampleStage)
+                        sampleSource += sampleStage[effectType];
+                    if (effectType in saveStage)
+                        saveSource += saveStage[effectType];
+                });
+                if (usesEqFilter) {
+                    loadSource += loadStage.eqFilter;
+                    sampleSource += sampleStage.eqFilter;
+                    saveSource += saveStage.eqFilter;
+                }
+                loadSource += loadStage.final;
+                sampleSource += sampleStage.final;
+                saveSource += saveStage.final;
+                effectsSource += loadSource;
+                effectsSource += sampleSource;
+                effectsSource += saveSource;
                 effectsFunction = new Function("Config", "Synth", effectsSource)(Config, Synth);
                 Synth.effectsFunctionCache[signature] = effectsFunction;
             }
@@ -26076,6 +26272,7 @@ li.select2-results__option[role=group] > strong:hover {
                 instrument.fromJsonObject(preset.settings, isNoise, isMod, song.rhythm == 0 || song.rhythm == 2, song.rhythm >= 2, 1);
                 instrument.preset = presetValue;
                 instrument.effects |= 1 << 2;
+                instrument.postProcessOrder = [...Config.defaultPostProcessOrder];
             }
         }
     }
@@ -26306,6 +26503,48 @@ li.select2-results__option[role=group] > strong:hover {
             doc.notifier.changed();
             if (oldValue != newValue)
                 this._didSomething();
+        }
+    }
+    function array_move(arr, old_index, new_index) {
+        if (new_index >= arr.length) {
+            var k = new_index - arr.length + 1;
+            while (k--) {
+                arr.push(undefined);
+            }
+        }
+        arr.splice(new_index, 0, arr.splice(old_index, 1)[0]);
+        return arr;
+    }
+    class ChangeProcessOrder extends Change {
+        constructor(_doc, effectType, oldValue, newValue) {
+            super();
+            this._doc = _doc;
+            this._instrument = this._doc.song.channels[this._doc.channel].instruments[this._doc.getCurrentInstrument()];
+            array_move(this._instrument.postProcessOrder, this._instrument.postProcessOrder.indexOf(effectType), newValue);
+            _doc.notifier.changed();
+            this._didSomething();
+        }
+        commit() {
+            if (!this.isNoop()) {
+                this._instrument.preset = this._instrument.type;
+                this._doc.notifier.changed();
+            }
+        }
+    }
+    class ChangeResetProcessOrder extends Change {
+        constructor(_doc) {
+            super();
+            this._doc = _doc;
+            this._instrument = this._doc.song.channels[this._doc.channel].instruments[this._doc.getCurrentInstrument()];
+            this._instrument.postProcessOrder = [...Config.defaultPostProcessOrder];
+            _doc.notifier.changed();
+            this._didSomething();
+        }
+        commit() {
+            if (!this.isNoop()) {
+                this._instrument.preset = this._instrument.type;
+                this._doc.notifier.changed();
+            }
         }
     }
     class ChangeNoteAdded extends UndoableChange {
@@ -27040,6 +27279,20 @@ li.select2-results__option[role=group] > strong:hover {
             const oldValue = instrument.envelopes[envelopeIndex].envelope;
             if (oldValue != newValue) {
                 instrument.envelopes[envelopeIndex].envelope = newValue;
+                instrument.preset = instrument.type;
+                doc.notifier.changed();
+                this._didSomething();
+            }
+        }
+    }
+    class ChangeCustomEnvelope extends Change {
+        constructor(doc, envelopeIndex, newValue, type) {
+            super();
+            const instrument = doc.song.channels[doc.channel].instruments[doc.getCurrentInstrument()];
+            const customEnvelope = instrument.envelopes[envelopeIndex].customEnvelope;
+            const oldValue = customEnvelope.getParameter(type);
+            if (oldValue != newValue) {
+                customEnvelope.setParameter(type, newValue / 10);
                 instrument.preset = instrument.type;
                 doc.notifier.changed();
                 this._didSomething();
@@ -32479,6 +32732,9 @@ You should be redirected to the song at:<br /><br />
             this._targetSelects = [];
             this._envelopeSelects = [];
             this._deleteButtons = [];
+            this._customToggleButtons = [];
+            this._customEnvelopeGroups = [];
+            this._customEnvelopeSliders = [];
             this._renderedEnvelopeCount = 0;
             this._renderedEqFilterCount = -1;
             this._renderedNoteFilterCount = -1;
@@ -32500,10 +32756,20 @@ You should be redirected to the song at:<br /><br />
                 const index = this._deleteButtons.indexOf(event.target);
                 if (index != -1) {
                     this._doc.record(new ChangeRemoveEnvelope(this._doc, index));
+                    this._customEnvelopeGroups[index].style.display = "none";
                 }
             };
             this.container.addEventListener("change", this._onChange);
             this.container.addEventListener("click", this._onClick);
+        }
+        _updateCustomEnvelopeValues(envelopeIndex, instrument) {
+            const sliders = this._customEnvelopeSliders[envelopeIndex];
+            sliders.fadeInSlider.updateValue(instrument.envelopes[envelopeIndex].customEnvelope.params.fadeIn * 10);
+            sliders.fadeOutSlider.updateValue(instrument.envelopes[envelopeIndex].customEnvelope.params.fadeOut * 10);
+            sliders.sustainSlider.updateValue(instrument.envelopes[envelopeIndex].customEnvelope.params.sustain * 10);
+            sliders.startAmtSlider.updateValue(instrument.envelopes[envelopeIndex].customEnvelope.params.startAmt * 10);
+            sliders.endAmtSlider.updateValue(instrument.envelopes[envelopeIndex].customEnvelope.params.endAmt * 10);
+            sliders.sustainAmtSlider.updateValue(instrument.envelopes[envelopeIndex].customEnvelope.params.sustainAmt * 10);
         }
         _makeOption(target, index) {
             let displayName = Config.instrumentAutomationTargets[target].displayName;
@@ -32546,15 +32812,58 @@ You should be redirected to the song at:<br /><br />
                     envelopeSelect.appendChild(HTML.option({ value: envelope }, Config.envelopes[envelope].name));
                 }
                 const deleteButton = HTML.button({ type: "button", class: "delete-envelope" });
-                const row = HTML.div({ class: "envelope-row" }, HTML.div({ class: "selectContainer", style: "width: 0; flex: 1;" }, targetSelect), HTML.div({ class: "selectContainer", style: "width: 0; flex: 0.7;" }, envelopeSelect), deleteButton);
+                const customEnvelopeToggle = HTML.button({ style: "margin-left:0em; margin-right: 1em; height:1.5em; width: 10px; padding: 0px; font-size: 8px;" }, "▼");
+                const row = HTML.div({ class: "envelope-row" }, customEnvelopeToggle, HTML.div({ class: "selectContainer", style: "width: 0; flex: 1;" }, targetSelect), HTML.div({ class: "selectContainer", style: "width: 0; flex: 0.7;" }, envelopeSelect), deleteButton);
+                const defaultCustomEnvelope = CustomEnvelope.defaultCustomEnvelope();
+                const fadeInSlider = new Slider(HTML.input({ style: "margin: 0; position: sticky,", type: "range", min: "0", max: Config.customEnvelopeFadeInRange, value: defaultCustomEnvelope.getParameter("fadeIn") * 10, step: "1" }), this._doc, (oldValue, newValue) => new ChangeCustomEnvelope(this._doc, envelopeIndex, newValue, "fadeIn"), false);
+                const fadeInRow = HTML.div({ class: "selectRow" }, HTML.span({}, "Fade In:"), fadeInSlider.container);
+                const fadeOutSlider = new Slider(HTML.input({ style: "margin: 0; position: sticky,", type: "range", min: "0", max: Config.customEnvelopeFadeOutRange, value: defaultCustomEnvelope.getParameter("fadeOut") * 10, step: "1" }), this._doc, (oldValue, newValue) => new ChangeCustomEnvelope(this._doc, envelopeIndex, newValue, "fadeOut"), false);
+                const fadeOutRow = HTML.div({ class: "selectRow" }, HTML.span({}, "Fade Out:"), fadeOutSlider.container);
+                const sustainSlider = new Slider(HTML.input({ style: "margin: 0; position: sticky,", type: "range", min: "0", max: Config.customEnvelopeSustainRange, value: defaultCustomEnvelope.getParameter("sustain") * 10, step: "1" }), this._doc, (oldValue, newValue) => new ChangeCustomEnvelope(this._doc, envelopeIndex, newValue, "sustain"), false);
+                const sustainRow = HTML.div({ class: "selectRow" }, HTML.span({}, "Sustain:"), sustainSlider.container);
+                const startAmtSlider = new Slider(HTML.input({ style: "margin: 0; position: sticky,", type: "range", min: "0", max: Config.customEnvelopeStartAmtRange, value: defaultCustomEnvelope.getParameter("startAmt") * 10, step: "1" }), this._doc, (oldValue, newValue) => new ChangeCustomEnvelope(this._doc, envelopeIndex, newValue, "startAmt"), false);
+                const startAmtRow = HTML.div({ class: "selectRow" }, HTML.span({}, "Start Amt:"), startAmtSlider.container);
+                const endAmtSlider = new Slider(HTML.input({ style: "margin: 0; position: sticky,", type: "range", min: "0", max: Config.customEnvelopeEndAmtRange, value: defaultCustomEnvelope.getParameter("endAmt") * 10, step: "1" }), this._doc, (oldValue, newValue) => new ChangeCustomEnvelope(this._doc, envelopeIndex, newValue, "endAmt"), false);
+                const endAmtRow = HTML.div({ class: "selectRow" }, HTML.span({}, "End Amt:"), endAmtSlider.container);
+                const sustainAmtSlider = new Slider(HTML.input({ style: "margin: 0; position: sticky,", type: "range", min: "0", max: Config.customEnvelopeSustainAmtRange, value: defaultCustomEnvelope.getParameter("sustainAmt") * 10, step: "1" }), this._doc, (oldValue, newValue) => new ChangeCustomEnvelope(this._doc, envelopeIndex, newValue, "sustainAmt"), false);
+                const sustainAmtRow = HTML.div({ class: "selectRow" }, HTML.span({}, "Sus. Amt:"), sustainAmtSlider.container);
+                const customEnvelopeGroup = HTML.div({ class: "envelope-settings" }, fadeInRow, fadeOutRow, sustainRow, startAmtRow, endAmtRow, sustainAmtRow);
+                customEnvelopeGroup.style.display = "none";
+                customEnvelopeToggle.style.display = "none";
+                const toggleEnvelopeGroup = () => {
+                    if (customEnvelopeToggle.textContent == "▼") {
+                        customEnvelopeToggle.textContent = "▲";
+                        customEnvelopeGroup.style.display = "";
+                    }
+                    else {
+                        customEnvelopeToggle.textContent = "▼";
+                        customEnvelopeGroup.style.display = "none";
+                    }
+                };
+                const customEnvelopeSliders = {
+                    fadeInSlider: fadeInSlider,
+                    fadeOutSlider: fadeOutSlider,
+                    sustainSlider: sustainSlider,
+                    startAmtSlider: startAmtSlider,
+                    endAmtSlider: endAmtSlider,
+                    sustainAmtSlider: sustainAmtSlider,
+                };
+                customEnvelopeToggle.addEventListener("click", toggleEnvelopeGroup);
                 this.container.appendChild(row);
+                this.container.appendChild(customEnvelopeGroup);
                 this._rows[envelopeIndex] = row;
                 this._targetSelects[envelopeIndex] = targetSelect;
                 this._envelopeSelects[envelopeIndex] = envelopeSelect;
                 this._deleteButtons[envelopeIndex] = deleteButton;
+                this._customToggleButtons[envelopeIndex] = customEnvelopeToggle;
+                this._customEnvelopeGroups[envelopeIndex] = customEnvelopeGroup;
+                this._customEnvelopeSliders[envelopeIndex] = customEnvelopeSliders;
             }
             for (let envelopeIndex = this._renderedEnvelopeCount; envelopeIndex < instrument.envelopeCount; envelopeIndex++) {
+                const instrument = this._doc.song.channels[this._doc.channel].instruments[this._doc.getCurrentInstrument()];
                 this._rows[envelopeIndex].style.display = "";
+                this._customToggleButtons[envelopeIndex].textContent = "▼";
+                console.log(this._targetSelects[envelopeIndex].value);
                 this._updateTargetOptionVisibility(this._targetSelects[envelopeIndex], instrument);
             }
             for (let envelopeIndex = instrument.envelopeCount; envelopeIndex < this._renderedEnvelopeCount; envelopeIndex++) {
@@ -32574,6 +32883,14 @@ You should be redirected to the song at:<br /><br />
             for (let envelopeIndex = 0; envelopeIndex < instrument.envelopeCount; envelopeIndex++) {
                 this._targetSelects[envelopeIndex].value = String(instrument.envelopes[envelopeIndex].target + instrument.envelopes[envelopeIndex].index * Config.instrumentAutomationTargets.length);
                 this._envelopeSelects[envelopeIndex].selectedIndex = instrument.envelopes[envelopeIndex].envelope;
+                if (Config.envelopes[instrument.envelopes[envelopeIndex].envelope].type == 14) {
+                    this._customToggleButtons[envelopeIndex].style.display = "";
+                }
+                else {
+                    this._customToggleButtons[envelopeIndex].style.display = "none";
+                    this._customEnvelopeGroups[envelopeIndex].style.display = "none";
+                }
+                this._updateCustomEnvelopeValues(envelopeIndex, instrument);
             }
             this._renderedEnvelopeCount = instrument.envelopeCount;
             this._renderedEqFilterCount = instrument.eqFilter.controlPointCount;
@@ -38234,6 +38551,11 @@ You should be redirected to the song at:<br /><br />
                         message = div$5(h2$4("Reverb"), p$1("Reverb is like a continuous echo effect. A little bit helps instruments sound more natural. Adding a lot of reverb can add sense of depth or mystery, but too much reverb can kinda \"smear\" sounds so that it's harder to distinguish notes or instruments, especially for lower \"bass\" notes."));
                     }
                     break;
+                case "linearVolume":
+                    {
+                        message = div$5(h2$4("Linear Volume"), p$1("Linear Volume is a multiplier to the volume of your instrument, ranging from 0 - 1."));
+                    }
+                    break;
                 case "rhythm":
                     {
                         message = div$5(h2$4("Rhythm"), p$1("This setting determines how beats are divided. The pattern editor helps you align notes to fractions of a beat based on this setting."), p$1("If you've already placed some notes but they don't align with the selected rhythm, you can select the \"Snap Notes To Rhythm\" option in the rhythm menu to force the notes in the currently selected pattern(s) to align with the selected rhythm."));
@@ -38592,6 +38914,11 @@ You should be redirected to the song at:<br /><br />
                 case "unisonSign":
                     {
                         message = div$5(h2$4("Unison Sign"), p$1("This setting is a volume multiplier applied to the second voice. This setting will only work correctly with two voices."));
+                    }
+                    break;
+                case "processOrder":
+                    {
+                        message = div$5(h2$4("Process Order"), p$1("This setting is the order in which effects are applied. The closer the slider is to the front, the earlier the effect will apply."));
                     }
                     break;
                 default:
@@ -40489,6 +40816,9 @@ You should be redirected to the song at:<br /><br />
     }
 
     const { button, div, input, select, span, optgroup, option, canvas } = HTML;
+    const easterEggs = {
+        egg_room: `{ "name": "egg_room", "format": "UltraBox", "version": 5, "scale": "Free", "customScale": [true, false, true, true, false, false, false, true, true, false, true, true], "key": "C", "keyOctave": 0, "introBars": 0, "loopBars": 4, "beatsPerBar": 8, "ticksPerBeat": 24, "beatsPerMinute": 88, "reverb": 0, "masterGain": 1, "compressionThreshold": 1, "limitThreshold": 1, "limitDecay": 4, "limitRise": 4000, "limitRatio": 1, "compressionRatio": 1, "layeredInstruments": false, "patternInstruments": false, "channels": [{ "type": "pitch", "name": "", "instruments": [{ "type": "FM", "volume": -4, "eqFilter": [{ "type": "high-pass", "cutoffHz": 250, "linearGain": 1 }], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "eqSubFilters0": [{ "type": "high-pass", "cutoffHz": 250, "linearGain": 1 }], "effects": ["panning", "vibrato", "echo", "reverb"], "vibrato": "light", "vibratoDepth": 0.15, "vibratoDelay": 0, "vibratoSpeed": 10, "vibratoType": 0, "pan": -50, "panDelay": 0, "echoSustain": 43, "echoDelayBeats": 0.25, "reverb": 32, "fadeInSeconds": 0.0125, "fadeOutTicks": 24, "algorithm": "1←(2 3 4)", "feedbackType": "1⟲ 2⟲ 3⟲ 4⟲", "feedbackAmplitude": 6, "operators": [{ "frequency": "1×", "amplitude": 15, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "2×", "amplitude": 10, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "~2×", "amplitude": 2, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "9×", "amplitude": 11, "waveform": "sine", "pulseWidth": 5 }], "envelopes": [{ "target": "operatorAmplitude", "envelope": "twang 2", "index": 1 }, { "target": "operatorAmplitude", "envelope": "twang 1", "index": 3 }, { "target": "feedbackAmplitude", "envelope": "twang 1" }] }], "patterns": [{ "notes": [{ "pitches": [36], "points": [{ "tick": 0, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 16, "pitchBend": 0, "volume": 100, "forMod": false }], "continuesLastPattern": false }, { "pitches": [43], "points": [{ "tick": 16, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 32, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [36], "points": [{ "tick": 48, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 64, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [43], "points": [{ "tick": 64, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 80, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [36], "points": [{ "tick": 96, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 112, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [43], "points": [{ "tick": 112, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 128, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [36], "points": [{ "tick": 144, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 160, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [43], "points": [{ "tick": 160, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 176, "pitchBend": 0, "volume": 100, "forMod": false }] }] }, { "notes": [{ "pitches": [34], "points": [{ "tick": 0, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 16, "pitchBend": 0, "volume": 100, "forMod": false }], "continuesLastPattern": false }, { "pitches": [41], "points": [{ "tick": 16, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 32, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [34], "points": [{ "tick": 48, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 64, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [41], "points": [{ "tick": 64, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 80, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [34], "points": [{ "tick": 96, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 112, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [41], "points": [{ "tick": 112, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 128, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [34], "points": [{ "tick": 144, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 160, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [41], "points": [{ "tick": 160, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 176, "pitchBend": 0, "volume": 100, "forMod": false }] }] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [1, 2, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 3 }, { "type": "pitch", "name": "", "instruments": [{ "type": "FM", "volume": -4, "eqFilter": [{ "type": "high-pass", "cutoffHz": 353.55, "linearGain": 0.7071 }], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "eqSubFilters0": [{ "type": "high-pass", "cutoffHz": 353.55, "linearGain": 0.7071 }], "effects": ["panning", "vibrato", "echo", "reverb"], "vibrato": "light", "vibratoDepth": 0.15, "vibratoDelay": 0, "vibratoSpeed": 10, "vibratoType": 0, "pan": 50, "panDelay": 0, "echoSustain": 43, "echoDelayBeats": 0.25, "reverb": 32, "fadeInSeconds": 0.0125, "fadeOutTicks": 24, "algorithm": "1←(2 3 4)", "feedbackType": "1⟲ 2⟲ 3⟲ 4⟲", "feedbackAmplitude": 6, "operators": [{ "frequency": "1×", "amplitude": 15, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "2×", "amplitude": 10, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "~2×", "amplitude": 2, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "9×", "amplitude": 11, "waveform": "sine", "pulseWidth": 5 }], "envelopes": [{ "target": "operatorAmplitude", "envelope": "twang 2", "index": 1 }, { "target": "operatorAmplitude", "envelope": "twang 1", "index": 3 }, { "target": "feedbackAmplitude", "envelope": "twang 1" }] }], "patterns": [{ "notes": [{ "pitches": [52], "points": [{ "tick": 16, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 32, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [51], "points": [{ "tick": 32, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 48, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [59], "points": [{ "tick": 48, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 64, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [54], "points": [{ "tick": 64, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 80, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [57], "points": [{ "tick": 80, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 96, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [55], "points": [{ "tick": 96, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 112, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [54], "points": [{ "tick": 128, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 144, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [55], "points": [{ "tick": 144, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 160, "pitchBend": 0, "volume": 100, "forMod": false }] }] }, { "notes": [{ "pitches": [50], "points": [{ "tick": 16, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 32, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [49], "points": [{ "tick": 32, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 48, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [57], "points": [{ "tick": 48, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 64, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [52], "points": [{ "tick": 64, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 80, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [55], "points": [{ "tick": 80, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 96, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [53], "points": [{ "tick": 96, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 112, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [52], "points": [{ "tick": 128, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 144, "pitchBend": 0, "volume": 100, "forMod": false }] }, { "pitches": [53], "points": [{ "tick": 144, "pitchBend": 0, "volume": 100, "forMod": false }, { "tick": 160, "pitchBend": 0, "volume": 100, "forMod": false }] }] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [1, 2, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 3 }, { "type": "pitch", "name": "", "instruments": [{ "type": "FM", "volume": -25, "eqFilter": [], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "eqSubFilters0": [], "effects": ["chord type", "note filter"], "chord": "strum", "noteFilterType": false, "noteSimpleCut": 10, "noteSimplePeak": 0, "noteFilter": [{ "type": "low-pass", "cutoffHz": 3363.59, "linearGain": 0.5 }], "noteSubFilters0": [{ "type": "low-pass", "cutoffHz": 3363.59, "linearGain": 0.5 }], "fadeInSeconds": 0, "fadeOutTicks": 48, "algorithm": "1←(2 3 4)", "feedbackType": "1⟲", "feedbackAmplitude": 0, "operators": [{ "frequency": "1×", "amplitude": 11, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "5×", "amplitude": 3, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "20×", "amplitude": 3, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "1×", "amplitude": 0, "waveform": "sine", "pulseWidth": 5 }], "envelopes": [{ "target": "noteFilterAllFreqs", "envelope": "decay 1" }, { "target": "operatorAmplitude", "envelope": "twang 2", "index": 1 }, { "target": "operatorAmplitude", "envelope": "twang 1", "index": 2 }] }], "patterns": [{ "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 2 }, { "type": "pitch", "name": "", "instruments": [{ "type": "harmonics", "volume": -25, "eqFilter": [{ "type": "peak", "cutoffHz": 1000, "linearGain": 11.3137 }, { "type": "peak", "cutoffHz": 707.11, "linearGain": 5.6569 }, { "type": "peak", "cutoffHz": 840.9, "linearGain": 0.0884 }, { "type": "peak", "cutoffHz": 1681.79, "linearGain": 0.0884 }, { "type": "high-pass", "cutoffHz": 297.3, "linearGain": 0.7071 }, { "type": "low-pass", "cutoffHz": 2828.43, "linearGain": 11.3137 }], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "preset": 644, "eqSubFilters0": [{ "type": "peak", "cutoffHz": 1000, "linearGain": 11.3137 }, { "type": "peak", "cutoffHz": 707.11, "linearGain": 5.6569 }, { "type": "peak", "cutoffHz": 840.9, "linearGain": 0.0884 }, { "type": "peak", "cutoffHz": 1681.79, "linearGain": 0.0884 }, { "type": "high-pass", "cutoffHz": 297.3, "linearGain": 0.7071 }, { "type": "low-pass", "cutoffHz": 2828.43, "linearGain": 11.3137 }], "effects": ["vibrato", "reverb"], "vibrato": "shaky", "vibratoDepth": 0.1, "vibratoDelay": 0, "vibratoSpeed": 10, "vibratoType": 1, "reverb": 32, "fadeInSeconds": 0.0413, "fadeOutTicks": 12, "harmonics": [86, 100, 100, 86, 71, 57, 43, 29, 29, 29, 29, 43, 43, 43, 29, 29, 29, 29, 29, 29, 29, 29, 29, 14, 14, 14, 14, 14], "unison": "none", "envelopes": [] }], "patterns": [{ "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 2 }, { "type": "pitch", "name": "", "instruments": [{ "type": "FM", "volume": -25, "eqFilter": [], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "preset": 322, "eqSubFilters0": [], "effects": ["chord type", "note filter"], "chord": "strum", "noteFilterType": false, "noteSimpleCut": 10, "noteSimplePeak": 0, "noteFilter": [{ "type": "low-pass", "cutoffHz": 13454.34, "linearGain": 0.25 }], "noteSubFilters0": [{ "type": "low-pass", "cutoffHz": 13454.34, "linearGain": 0.25 }], "fadeInSeconds": 0, "fadeOutTicks": 48, "algorithm": "1←(2 3←4)", "feedbackType": "3⟲", "feedbackAmplitude": 4, "operators": [{ "frequency": "1×", "amplitude": 15, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "1×", "amplitude": 5, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "11×", "amplitude": 1, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "1×", "amplitude": 9, "waveform": "sine", "pulseWidth": 5 }], "envelopes": [{ "target": "noteFilterAllFreqs", "envelope": "twang 1" }, { "target": "operatorAmplitude", "envelope": "twang 3", "index": 2 }, { "target": "feedbackAmplitude", "envelope": "twang 1" }] }], "patterns": [{ "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 2 }, { "type": "pitch", "name": "", "instruments": [{ "type": "harmonics", "volume": -25, "eqFilter": [{ "type": "low-pass", "cutoffHz": 2000, "linearGain": 1.4142 }], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "preset": 834, "eqSubFilters0": [{ "type": "low-pass", "cutoffHz": 2000, "linearGain": 1.4142 }], "effects": ["vibrato", "chorus"], "vibrato": "delayed", "vibratoDepth": 0.3, "vibratoDelay": 18.5, "vibratoSpeed": 10, "vibratoType": 0, "chorus": 100, "fadeInSeconds": 0.0263, "fadeOutTicks": -3, "harmonics": [100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "unison": "none", "envelopes": [] }], "patterns": [{ "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 2 }, { "type": "pitch", "name": "", "instruments": [{ "type": "Picked String", "volume": -25, "eqFilter": [{ "type": "high-pass", "cutoffHz": 250, "linearGain": 0.3536 }, { "type": "peak", "cutoffHz": 11313.71, "linearGain": 2.8284 }], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "preset": 134, "eqSubFilters0": [{ "type": "high-pass", "cutoffHz": 250, "linearGain": 0.3536 }, { "type": "peak", "cutoffHz": 11313.71, "linearGain": 2.8284 }], "effects": ["reverb"], "reverb": 32, "fadeInSeconds": 0, "fadeOutTicks": 24, "harmonics": [100, 100, 100, 86, 57, 86, 86, 86, 86, 57, 57, 71, 71, 86, 86, 71, 71, 86, 86, 71, 71, 71, 71, 71, 71, 71, 71, 71], "unison": "none", "stringSustain": 79, "envelopes": [] }], "patterns": [{ "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 2 }, { "type": "pitch", "name": "", "instruments": [{ "type": "FM", "volume": -25, "eqFilter": [{ "type": "high-pass", "cutoffHz": 250, "linearGain": 0.7071 }], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "eqSubFilters0": [{ "type": "high-pass", "cutoffHz": 250, "linearGain": 0.7071 }], "effects": ["panning", "vibrato", "echo", "reverb"], "vibrato": "light", "vibratoDepth": 0.15, "vibratoDelay": 0, "vibratoSpeed": 10, "vibratoType": 0, "pan": 50, "panDelay": 0, "echoSustain": 43, "echoDelayBeats": 0.25, "reverb": 32, "fadeInSeconds": 0.0125, "fadeOutTicks": 24, "algorithm": "1←(2 3 4)", "feedbackType": "1⟲ 2⟲ 3⟲ 4⟲", "feedbackAmplitude": 6, "operators": [{ "frequency": "1×", "amplitude": 15, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "2×", "amplitude": 10, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "~2×", "amplitude": 2, "waveform": "sine", "pulseWidth": 5 }, { "frequency": "9×", "amplitude": 11, "waveform": "sine", "pulseWidth": 5 }], "envelopes": [{ "target": "operatorAmplitude", "envelope": "twang 2", "index": 1 }, { "target": "operatorAmplitude", "envelope": "twang 1", "index": 3 }, { "target": "feedbackAmplitude", "envelope": "twang 1" }] }], "patterns": [{ "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 2 }, { "type": "pitch", "name": "", "instruments": [{ "type": "harmonics", "volume": -25, "eqFilter": [{ "type": "low-pass", "cutoffHz": 2378.41, "linearGain": 11.3137 }, { "type": "peak", "cutoffHz": 594.6, "linearGain": 5.6569 }, { "type": "peak", "cutoffHz": 1681.79, "linearGain": 0.0884 }, { "type": "peak", "cutoffHz": 707.11, "linearGain": 0.0884 }, { "type": "peak", "cutoffHz": 840.9, "linearGain": 11.3137 }], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "preset": 642, "eqSubFilters0": [{ "type": "low-pass", "cutoffHz": 2378.41, "linearGain": 11.3137 }, { "type": "peak", "cutoffHz": 594.6, "linearGain": 5.6569 }, { "type": "peak", "cutoffHz": 1681.79, "linearGain": 0.0884 }, { "type": "peak", "cutoffHz": 707.11, "linearGain": 0.0884 }, { "type": "peak", "cutoffHz": 840.9, "linearGain": 11.3137 }], "effects": ["vibrato", "chorus", "reverb"], "vibrato": "shaky", "vibratoDepth": 0.1, "vibratoDelay": 0, "vibratoSpeed": 10, "vibratoType": 1, "chorus": 100, "reverb": 68, "fadeInSeconds": 0.0413, "fadeOutTicks": 48, "harmonics": [71, 86, 100, 100, 86, 86, 57, 43, 29, 29, 29, 29, 29, 29, 43, 43, 43, 43, 43, 29, 29, 29, 29, 14, 14, 14, 14, 14], "unison": "none", "envelopes": [] }], "patterns": [{ "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 2 }, { "type": "pitch", "name": "", "instruments": [{ "type": "supersaw", "volume": -4, "eqFilter": [{ "type": "low-pass", "cutoffHz": 6727.17, "linearGain": 2 }], "eqFilterType": false, "eqSimpleCut": 10, "eqSimplePeak": 0, "envelopeSpeed": 12, "discreteEnvelope": false, "preset": 74, "eqSubFilters0": [{ "type": "low-pass", "cutoffHz": 6727.17, "linearGain": 2 }], "effects": ["reverb"], "reverb": 68, "fadeInSeconds": 0, "fadeOutTicks": -6, "pulseWidth": 50, "decimalOffset": 0, "dynamism": 100, "spread": 58, "shape": 0, "envelopes": [] }], "patterns": [{ "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }, { "notes": [] }], "sequence": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "octaveScrollBar": 2 }] }`
+    };
     function buildOptions(menu, items) {
         for (let index = 0; index < items.length; index++) {
             menu.appendChild(option({ value: index }, items[index]));
@@ -41079,7 +41409,7 @@ You should be redirected to the song at:<br /><br />
             this._reverbSlider = new Slider(input({ style: "margin: 0; position: sticky,", type: "range", min: "0", max: Config.reverbRange - 1, value: "0", step: "1" }), this._doc, (oldValue, newValue) => new ChangeReverb(this._doc, oldValue, newValue), false);
             this._reverbRow = div({ class: "selectRow" }, span({ class: "tip", onclick: () => this._openPrompt("reverb") }, "Reverb:"), this._reverbSlider.container);
             this._volumeLinearSlider = new Slider(input({ style: "margin: 0;", type: "range", min: "0", max: Config.volumeLinearRange - 1, value: "0", step: "1" }), this._doc, (oldValue, newValue) => new ChangeLinearVolume(this._doc, oldValue, newValue), false);
-            this._volumeLinearRow = div({ class: "selectRow" }, span({ class: "tip", onclick: () => this._openPrompt("linear volume") }, "Linear Volume:"), this._volumeLinearSlider.input);
+            this._volumeLinearRow = div({ class: "selectRow" }, span({ class: "tip", onclick: () => this._openPrompt("linearVolume") }, "Linear Volume:"), this._volumeLinearSlider.input);
             this._echoSustainSlider = new Slider(input({ style: "margin: 0;", type: "range", min: "0", max: Config.echoSustainRange - 1, value: "0", step: "1" }), this._doc, (oldValue, newValue) => new ChangeEchoSustain(this._doc, oldValue, newValue), false);
             this._echoSustainRow = div({ class: "selectRow" }, span({ class: "tip", onclick: () => this._openPrompt("echoSustain") }, "Echo:"), this._echoSustainSlider.container);
             this._echoDelaySlider = new Slider(input({ style: "margin: 0;", type: "range", min: "0", max: Config.echoDelayRange - 1, value: "0", step: "1" }), this._doc, (oldValue, newValue) => new ChangeEchoDelay(this._doc, oldValue, newValue), false);
@@ -41283,13 +41613,32 @@ You should be redirected to the song at:<br /><br />
             this._songTitleInputBox = new InputBox(input({ style: "font-weight:bold; border:none; width: 98%; background-color:${ColorConfig.editorBackground}; color:${ColorConfig.primaryText}; text-align:center", maxlength: "30", type: "text", value: EditorConfig.versionDisplayName }), this._doc, (oldValue, newValue) => new ChangeSongTitle(this._doc, oldValue, newValue));
             this._feedbackAmplitudeSlider = new Slider(input({ type: "range", min: "0", max: Config.operatorAmplitudeMax, value: "0", step: "1", title: "Feedback Amplitude" }), this._doc, (oldValue, newValue) => new ChangeFeedbackAmplitude(this._doc, oldValue, newValue), false);
             this._feedbackRow2 = div({ class: "selectRow" }, span({ class: "tip", onclick: () => this._openPrompt("feedbackVolume") }, "Fdback Vol:"), this._feedbackAmplitudeSlider.container);
+            this._isProcessOpen = false;
+            this._resetProcessButton = button({ type: "button", class: "reset-process" });
+            this._processToggleButton = button({ style: "margin-left:0em; margin-right: 1em; height:1.5em; width: 10px; padding: 0px; font-size: 8px;" }, "▼");
+            this._distortionProcessSlider = new Slider(input({ type: "range", min: "0", max: Config.defaultPostProcessOrder.length - 1, value: Config.defaultPostProcessOrder.indexOf(3), step: "1", title: "Distortion Order" }), this._doc, (oldValue, newValue) => new ChangeProcessOrder(this._doc, 3, oldValue, newValue), false);
+            this._distortionProcessRow = div({ class: "selectRow" }, span({}, "Distortion:"), this._distortionProcessSlider.container);
+            this._bitcrusherProcessSlider = new Slider(input({ type: "range", min: "0", max: Config.defaultPostProcessOrder.length - 1, value: Config.defaultPostProcessOrder.indexOf(4), step: "1", title: "Bitcrusher Order" }), this._doc, (oldValue, newValue) => new ChangeProcessOrder(this._doc, 4, oldValue, newValue), false);
+            this._bitcrusherProcessRow = div({ class: "selectRow" }, span({}, "Bitcrusher:"), this._bitcrusherProcessSlider.container);
+            this._volumeLinearProcessSlider = new Slider(input({ type: "range", min: "0", max: Config.defaultPostProcessOrder.length - 1, value: Config.defaultPostProcessOrder.indexOf(12), step: "1", title: "Linear Volume Order" }), this._doc, (oldValue, newValue) => new ChangeProcessOrder(this._doc, 12, oldValue, newValue), false);
+            this._volumeLinearProcessRow = div({ class: "selectRow" }, span({}, "Lin. Vol.:"), this._volumeLinearProcessSlider.container);
+            this._panningProcessSlider = new Slider(input({ type: "range", min: "0", max: Config.defaultPostProcessOrder.length - 1, value: Config.defaultPostProcessOrder.indexOf(2), step: "1", title: "Pan Order" }), this._doc, (oldValue, newValue) => new ChangeProcessOrder(this._doc, 2, oldValue, newValue), false);
+            this._panningProcessRow = div({ class: "selectRow" }, span({}, "Pan:"), this._panningProcessSlider.container);
+            this._chorusProcessSlider = new Slider(input({ type: "range", min: "0", max: Config.defaultPostProcessOrder.length - 1, value: Config.defaultPostProcessOrder.indexOf(1), step: "1", title: "Chorus Order" }), this._doc, (oldValue, newValue) => new ChangeProcessOrder(this._doc, 1, oldValue, newValue), false);
+            this._chorusProcessRow = div({ class: "selectRow" }, span({}, "Chorus:"), this._chorusProcessSlider.container);
+            this._echoProcessSlider = new Slider(input({ type: "range", min: "0", max: Config.defaultPostProcessOrder.length - 1, value: Config.defaultPostProcessOrder.indexOf(6), step: "1", title: "Echo Order" }), this._doc, (oldValue, newValue) => new ChangeProcessOrder(this._doc, 6, oldValue, newValue), false);
+            this._echoProcessRow = div({ class: "selectRow" }, span({}, "Echo"), this._echoProcessSlider.container);
+            this._reverbProcessSlider = new Slider(input({ type: "range", min: "0", max: Config.defaultPostProcessOrder.length - 1, value: Config.defaultPostProcessOrder.indexOf(0), step: "1", title: "Reverb Order" }), this._doc, (oldValue, newValue) => new ChangeProcessOrder(this._doc, 0, oldValue, newValue), false);
+            this._reverbProcessRow = div({ class: "selectRow" }, span({}, "Reverb:"), this._reverbProcessSlider.container);
+            this._instrumentEffectProcessSliders = div({ class: "editor-controls ", style: "display: none" }, this._distortionProcessRow, this._bitcrusherProcessRow, this._volumeLinearProcessRow, this._panningProcessRow, this._chorusProcessRow, this._echoProcessRow, this._reverbProcessRow);
+            this._instrumentEffectProcessGroup = div({ class: "editor-controls" }, div({ style: `padding: 2px 0; margin-left: 2em; display: flex; align-items: center;` }, span({ style: `flex-grow: 1; text-align: center;` }, span({ class: "tip", onclick: () => this._openPrompt("processOrder") }, "Process Order")), div(this._processToggleButton), div(this._resetProcessButton)), this._instrumentEffectProcessSliders);
             this._addEnvelopeButton = button({ type: "button", class: "add-envelope" });
             this._customInstrumentSettingsGroup = div({ class: "editor-controls" }, this._panSliderRow, this._panDropdownGroup, this._chipWaveSelectRow, this._chipNoiseSelectRow, this._useChipWaveAdvancedLoopControlsRow, this._chipWaveLoopModeSelectRow, this._chipWaveLoopStartRow, this._chipWaveLoopEndRow, this._chipWaveStartOffsetRow, this._chipWavePlayBackwardsRow, this._customWaveDraw, this._eqFilterTypeRow, this._eqFilterRow, this._eqFilterSimpleCutRow, this._eqFilterSimplePeakRow, this._fadeInOutRow, this._algorithmSelectRow, this._algorithm6OpSelectRow, this._phaseModGroup, this._feedbackRow1, this._feedback6OpRow1, this._feedbackRow2, this._spectrumRow, this._harmonicsRow, this._drumsetGroup, this._supersawDynamismRow, this._supersawSpreadRow, this._supersawShapeRow, this._pulseWidthRow, this._pulseWidthDropdownGroup, this._stringSustainRow, this._unisonSelectRow, this._unisonDropdownGroup, div({ style: `padding: 2px 0; margin-left: 2em; display: flex; align-items: center;` }, span({ style: `flex-grow: 1; text-align: center;` }, span({ class: "tip", onclick: () => this._openPrompt("effects") }, "Effects")), div({ class: "effects-menu" }, this._effectsSelect)), this._transitionRow, this._transitionDropdownGroup, this._chordSelectRow, this._chordDropdownGroup, this._pitchShiftRow, this._detuneSliderRow, this._vibratoSelectRow, this._vibratoDropdownGroup, this._noteFilterTypeRow, this._noteFilterRow, this._noteFilterSimpleCutRow, this._noteFilterSimplePeakRow, this._distortionRow, this._aliasingRow, this._bitcrusherQuantizationRow, this._bitcrusherFreqRow, this._chorusRow, this._echoSustainRow, this._echoDelayRow, this._reverbRow, this._volumeLinearRow, div({ style: `padding: 2px 0; margin-left: 2em; display: flex; align-items: center;` }, span({ style: `flex-grow: 1; text-align: center;` }, span({ class: "tip", onclick: () => this._openPrompt("envelopes") }, "Envelopes")), this._envelopeDropdown, this._addEnvelopeButton), this._envelopeDropdownGroup, this._envelopeEditor.container);
             this._instrumentCopyGroup = div({ class: "editor-controls" }, div({ class: "selectRow" }, this._instrumentCopyButton, this._instrumentPasteButton));
             this._instrumentExportGroup = div({ class: "editor-controls" }, div({ class: "selectRow" }, this._instrumentExportButton, this._instrumentImportButton));
-            this._instrumentSettingsTextRow = div({ id: "instrumentSettingsText", style: `padding: 3px 0; max-width: 15em; text-align: center; color: ${ColorConfig.secondaryText};` }, "Instrument Settings");
+            this._instrumentSettingsTextRow = div({ id: "instrumentSettingsText", style: `padding: 2px 0; margin-left: 2em; display: flex; align-items: center; color: ${ColorConfig.secondaryText};` }, "Instrument Settings");
             this._instrumentTypeSelectRow = div({ class: "selectRow", id: "typeSelectRow" }, span({ class: "tip", onclick: () => this._openPrompt("instrumentType") }, "Type:"), div(div({ class: "pitchSelect" }, this._pitchedPresetSelect), div({ class: "drumSelect" }, this._drumPresetSelect)));
-            this._instrumentSettingsGroup = div({ class: "editor-controls" }, this._instrumentSettingsTextRow, this._instrumentsButtonRow, this._instrumentTypeSelectRow, this._instrumentVolumeSliderRow, this._customInstrumentSettingsGroup);
+            this._instrumentSettingsGroup = div({ class: "editor-controls" }, this._instrumentSettingsTextRow, this._instrumentsButtonRow, this._instrumentTypeSelectRow, this._instrumentVolumeSliderRow, this._customInstrumentSettingsGroup, this._instrumentEffectProcessGroup);
             this._usedPatternIndicator = SVG.path({ d: "M -6 -6 H 6 V 6 H -6 V -6 M -2 -3 L -2 -3 L -1 -4 H 1 V 4 H -1 V -1.2 L -1.2 -1 H -2 V -3 z", fill: ColorConfig.indicatorSecondary, "fill-rule": "evenodd" });
             this._usedInstrumentIndicator = SVG.path({ d: "M -6 -0.8 H -3.8 V -6 H 0.8 V 4.4 H 2.2 V -0.8 H 6 V 0.8 H 3.8 V 6 H -0.8 V -4.4 H -2.2 V 0.8 H -6 z", fill: ColorConfig.indicatorSecondary });
             this._jumpToModIndicator = SVG.svg({ style: "width: 92%; height: 1.3em; flex-shrink: 0; position: absolute;", viewBox: "0 0 200 200" }, [
@@ -41393,6 +41742,7 @@ You should be redirected to the song at:<br /><br />
                 if (document.activeElement != this._patternEditor.modDragValueLabel && this._patternEditor.editingModLabel) {
                     this._patternEditor.stopEditingModLabel(false);
                 }
+                this.updateProcessSliders();
                 this._piano.container.style.display = prefs.showLetters ? "" : "none";
                 this._octaveScrollBar.container.style.display = prefs.showScrollBar ? "" : "none";
                 this._barScrollBar.container.style.display = this._doc.song.barCount > this._doc.trackVisibleBars ? "" : "none";
@@ -41537,6 +41887,7 @@ You should be redirected to the song at:<br /><br />
                 setSelectedValue(this._rhythmSelect, this._doc.song.rhythm);
                 if (!this._doc.song.getChannelIsMod(this._doc.channel)) {
                     this._customInstrumentSettingsGroup.style.display = "";
+                    this._instrumentEffectProcessGroup.style.display = "";
                     this._panSliderRow.style.display = "";
                     this._panDropdownGroup.style.display = (this._openPanDropdown ? "" : "none");
                     this._detuneSliderRow.style.display = "";
@@ -41874,14 +42225,18 @@ You should be redirected to the song at:<br /><br />
                     }
                     if (effectsIncludeDistortion(instrument.effects)) {
                         this._distortionRow.style.display = "";
-                        if (instrument.type == 0 || instrument.type == 9 || instrument.type == 6 || instrument.type == 8)
+                        this._distortionProcessRow.style.display = "";
+                        if (instrument.type == 0 || instrument.type == 9 || instrument.type == 6 || instrument.type == 8) {
                             this._aliasingRow.style.display = "";
-                        else
+                        }
+                        else {
                             this._aliasingRow.style.display = "none";
+                        }
                         this._distortionSlider.updateValue(instrument.distortion);
                     }
                     else {
                         this._distortionRow.style.display = "none";
+                        this._distortionProcessRow.style.display = "none";
                         this._aliasingRow.style.display = "none";
                     }
                     if (effectsIncludeBitcrusher(instrument.effects)) {
@@ -41889,20 +42244,25 @@ You should be redirected to the song at:<br /><br />
                         this._bitcrusherFreqRow.style.display = "";
                         this._bitcrusherQuantizationSlider.updateValue(instrument.bitcrusherQuantization);
                         this._bitcrusherFreqSlider.updateValue(instrument.bitcrusherFreq);
+                        this._bitcrusherProcessRow.style.display = "";
                     }
                     else {
                         this._bitcrusherQuantizationRow.style.display = "none";
                         this._bitcrusherFreqRow.style.display = "none";
+                        this._bitcrusherProcessRow.style.display = "none";
                     }
                     if (effectsIncludeVolumeLinear(instrument.effects)) {
                         this._volumeLinearRow.style.display = "";
+                        this._volumeLinearProcessRow.style.display = "";
                         this._volumeLinearSlider.updateValue(instrument.volumeLinear);
                     }
                     else {
                         this._volumeLinearRow.style.display = "none";
+                        this._volumeLinearProcessRow.style.display = "none";
                     }
                     if (effectsIncludePanning(instrument.effects)) {
                         this._panSliderRow.style.display = "";
+                        this._panningProcessRow.style.display = "";
                         if (this._openPanDropdown)
                             this._panDropdownGroup.style.display = "";
                         this._panSlider.updateValue(instrument.pan);
@@ -41910,13 +42270,16 @@ You should be redirected to the song at:<br /><br />
                     else {
                         this._panSliderRow.style.display = "none";
                         this._panDropdownGroup.style.display = "none";
+                        this._panningProcessRow.style.display = "none";
                     }
                     if (effectsIncludeChorus(instrument.effects)) {
                         this._chorusRow.style.display = "";
                         this._chorusSlider.updateValue(instrument.chorus);
+                        this._chorusProcessRow.style.display = "";
                     }
                     else {
                         this._chorusRow.style.display = "none";
+                        this._chorusProcessRow.style.display = "none";
                     }
                     if (effectsIncludeEcho(instrument.effects)) {
                         this._echoSustainRow.style.display = "";
@@ -41924,17 +42287,21 @@ You should be redirected to the song at:<br /><br />
                         this._echoDelayRow.style.display = "";
                         this._echoDelaySlider.updateValue(instrument.echoDelay);
                         this._echoDelaySlider.input.title = (Math.round((instrument.echoDelay + 1) * Config.echoDelayStepTicks / (Config.ticksPerPart * Config.partsPerBeat) * 1000) / 1000) + " beat(s)";
+                        this._echoProcessRow.style.display = "";
                     }
                     else {
                         this._echoSustainRow.style.display = "none";
                         this._echoDelayRow.style.display = "none";
+                        this._echoProcessRow.style.display = "none";
                     }
                     if (effectsIncludeReverb(instrument.effects)) {
                         this._reverbRow.style.display = "";
                         this._reverbSlider.updateValue(instrument.reverb);
+                        this._reverbProcessRow.style.display = "";
                     }
                     else {
                         this._reverbRow.style.display = "none";
+                        this._reverbProcessRow.style.display = "none";
                     }
                     if (instrument.type == 0 || instrument.type == 9 || instrument.type == 5 || instrument.type == 7 || instrument.type == 3 || instrument.type == 6 || instrument.type == 2) {
                         this._unisonSelectRow.style.display = "";
@@ -42007,6 +42374,7 @@ You should be redirected to the song at:<br /><br />
                 }
                 else {
                     this._usageCheck(this._doc.channel, instrumentIndex);
+                    this._instrumentEffectProcessGroup.style.display = "none";
                     this._pitchedPresetSelect.style.display = "none";
                     this._drumPresetSelect.style.display = "none";
                     $("#pitchPresetSelect").parent().hide();
@@ -42143,7 +42511,6 @@ You should be redirected to the song at:<br /><br />
                             else {
                                 settingList.push("note volume");
                                 settingList.push("mix volume");
-                                settingList.push("linear volume");
                                 let tgtInstrumentTypes = [];
                                 let anyInstrumentAdvancedEQ = false, anyInstrumentSimpleEQ = false, anyInstrumentAdvancedNote = false, anyInstrumentSimpleNote = false, anyInstrumentArps = false, anyInstrumentPitchShifts = false, anyInstrumentDetunes = false, anyInstrumentVibratos = false, anyInstrumentNoteFilters = false, anyInstrumentDistorts = false, anyInstrumentBitcrushes = false, anyInstrumentPans = false, anyInstrumentChorus = false, anyInstrumentEchoes = false, anyInstrumentReverbs = false, anyInstrumentHasEnvelopes = false, anyInstrumentHasLinearVolume = false;
                                 let allInstrumentPitchShifts = true, allInstrumentNoteFilters = true, allInstrumentDetunes = true, allInstrumentVibratos = true, allInstrumentDistorts = true, allInstrumentBitcrushes = true, allInstrumentPans = true, allInstrumentChorus = true, allInstrumentEchoes = true, allInstrumentReverbs = true, allInstrumentLinearVolume = true;
@@ -43658,6 +44025,21 @@ You should be redirected to the song at:<br /><br />
                 this.refocusStage();
                 this._doc.addedEnvelope = true;
             };
+            this._resetProcess = () => {
+                this._doc.record(new ChangeResetProcessOrder(this._doc));
+                this.refocusStage();
+            };
+            this._toggleProcess = () => {
+                this._isProcessOpen = !this._isProcessOpen;
+                if (this._isProcessOpen) {
+                    this._processToggleButton.textContent = "▲";
+                    this._instrumentEffectProcessSliders.style.display = "";
+                }
+                else {
+                    this._processToggleButton.textContent = "▼";
+                    this._instrumentEffectProcessSliders.style.display = "none";
+                }
+            };
             this._zoomIn = () => {
                 this._doc.prefs.visibleOctaves = Math.max(1, this._doc.prefs.visibleOctaves - 1);
                 this._doc.prefs.save();
@@ -43705,8 +44087,8 @@ You should be redirected to the song at:<br /><br />
                         break;
                     case "viewPlayer":
                         let curr_url = this._doc.song.toBase64String();
-                        if (Math.random() < 0.01) {
-                            curr_url = "u5N08Untitledna00s0k02l00e03t1oa7g0fj07r5O_U00000000000000000000i0o4433333333T1v0lu01f0118700q9510p032ad170A0F8B6Q467gPfa2bR0000E3c061963878T1v0lu01f011a600q9511b032ad170A0F8B6Q467gPfa2bR0000E3c061963878T1v00u01f0000qww010n5001d080A0F0B0Q4cr4Pb330R0000E3c0bn619628T5v00ua4f062ge2ec2f02j01960me00q814ad360HT-Iqijriiiih99h0E0c0T1v00u52f0000qww010v3001d080A1F2B4Q44i4Pf519R0000E3c0b862a78T5v00ud2f010k800q8227d230HU0000000000000h0E0c0T7v00u26f021842ua00q01ad070H_-CSQBKRKRJJJJh0IbE0c0T1v00u01f0118600q9511b032ad170A0F8B6Q467gPfa2bR0000E3c061963878T5v00ua2f050le2dc2j02e02fe00q8347ld380HK_Sziiirrqih99h0E0c0T8v0lu1af010r900q01ld020x670WO00E0c0b4x800000000i4w000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000p21dFA-IH4Z6yjQq9fhEA-ngFfhEAZ6yjQq9e19QOv1O4b9MdoDFkj7AYz8laZig9Wl4NM00000000000";
+                        if (Math.random() < 0.5) {
+                            curr_url = easterEggs.egg_room;
                         }
                         location.href = "player/" + (OFFLINE ? "index.html" : "") + "#song=" + curr_url;
                         break;
@@ -44098,6 +44480,8 @@ You should be redirected to the song at:<br /><br />
             this._harmonicsEditor.container.addEventListener("mousedown", this.refocusStage);
             this._tempoStepper.addEventListener("keydown", this._tempoStepperCaptureNumberKeys, false);
             this._addEnvelopeButton.addEventListener("click", this._addNewEnvelope);
+            this._resetProcessButton.addEventListener("click", this._resetProcess);
+            this._processToggleButton.addEventListener("click", this._toggleProcess);
             this._patternArea.addEventListener("contextmenu", this._disableCtrlContextMenu);
             this._trackArea.addEventListener("contextmenu", this._disableCtrlContextMenu);
             this.mainLayer.addEventListener("keydown", this._whenKeyPressed);
@@ -44142,6 +44526,18 @@ You should be redirected to the song at:<br /><br />
                 layoutOption.disabled = true;
                 layoutOption.setAttribute("hidden", "");
             }
+        }
+        updateProcessSliders() {
+            const channel = this._doc.song.channels[this._doc.channel];
+            const instrumentIndex = this._doc.getCurrentInstrument();
+            const instrument = channel.instruments[instrumentIndex];
+            this._reverbProcessSlider.input.value = instrument.postProcessOrder.indexOf(0).toString();
+            this._echoProcessSlider.input.value = instrument.postProcessOrder.indexOf(6).toString();
+            this._distortionProcessSlider.input.value = instrument.postProcessOrder.indexOf(3).toString();
+            this._bitcrusherProcessSlider.input.value = instrument.postProcessOrder.indexOf(4).toString();
+            this._panningProcessSlider.input.value = instrument.postProcessOrder.indexOf(2).toString();
+            this._volumeLinearProcessSlider.input.value = instrument.postProcessOrder.indexOf(12).toString();
+            this._chorusProcessSlider.input.value = instrument.postProcessOrder.indexOf(1).toString();
         }
         _updateSampleLoadingBar(e) {
             this._sampleLoadingBar.style.width = `${e.computeSamplesLoadedPercentage()}%`;

@@ -783,6 +783,12 @@ var beepbox = (function (exports) {
         { name: "75×", mult: 75.0, hzOffset: 0.0, amplitudeSign: 1.0 },
         { name: "100×", mult: 100.0, hzOffset: 0.0, amplitudeSign: 1.0 }
     ]);
+    Config.customEnvelopeFadeInRange = 10;
+    Config.customEnvelopeFadeOutRange = 10;
+    Config.customEnvelopeSustainRange = 10;
+    Config.customEnvelopeStartAmtRange = 10;
+    Config.customEnvelopeEndAmtRange = 10;
+    Config.customEnvelopeSustainAmtRange = 10;
     Config.envelopes = toNameMap([
         { name: "none", type: 1, speed: 0.0 },
         { name: "note size", type: 0, speed: 0.0 },
@@ -845,6 +851,7 @@ var beepbox = (function (exports) {
         { name: "blip 1", type: 13, speed: 6.0 },
         { name: "blip 2", type: 13, speed: 16.0 },
         { name: "blip 3", type: 13, speed: 32.0 },
+        { name: "custom", type: 14, speed: 50.0 },
     ]);
     Config.feedbacks = toNameMap([
         { name: "1⟲", indices: [[1], [], [], []] },
@@ -1021,6 +1028,7 @@ var beepbox = (function (exports) {
         { name: "tempo", maxRawVol: Config.tempoMax - Config.tempoMin, newNoteVol: Math.ceil((Config.tempoMax - Config.tempoMin) / 2), forSong: true, convertRealFactor: Config.tempoMin, associatedEffect: 13 },
         { name: "song reverb", maxRawVol: Config.reverbRange * 2, newNoteVol: Config.reverbRange, forSong: true, convertRealFactor: -Config.reverbRange, associatedEffect: 13 },
         { name: "next bar", maxRawVol: 1, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
+        { name: "skip bars", maxRawVol: 20, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
         { name: "note volume", maxRawVol: Config.volumeRange, newNoteVol: Math.ceil(Config.volumeRange / 2), forSong: false, convertRealFactor: Math.ceil(-Config.volumeRange / 2.0), associatedEffect: 13 },
         { name: "pan", maxRawVol: Config.panMax, newNoteVol: Math.ceil(Config.panMax / 2), forSong: false, convertRealFactor: 0, associatedEffect: 2 },
         { name: "reverb", maxRawVol: Config.reverbRange, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 0 },
@@ -1061,7 +1069,6 @@ var beepbox = (function (exports) {
         { name: "spread", maxRawVol: Config.supersawSpreadMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
         { name: "saw shape", maxRawVol: Config.supersawShapeMax, newNoteVol: 0, forSong: false, convertRealFactor: 0, associatedEffect: 13 },
         { name: "linear volume", maxRawVol: Config.volumeLinearRange, newNoteVol: Config.volumeLinearRange, forSong: false, convertRealFactor: 0, associatedEffect: 12 },
-        { name: "skip bars", maxRawVol: 20, newNoteVol: 1, forSong: true, convertRealFactor: 0, associatedEffect: 13 },
     ]);
     function centerWave(wave) {
         let sum = 0.0;
@@ -3148,6 +3155,7 @@ var beepbox = (function (exports) {
             this.target = 0;
             this.index = 0;
             this.envelope = 0;
+            this.customEnvelope = CustomEnvelope.defaultCustomEnvelope();
             this.reset();
         }
         reset() {
@@ -3181,6 +3189,68 @@ var beepbox = (function (exports) {
             else {
                 this.index = 0;
             }
+        }
+    }
+    class CustomEnvelope {
+        constructor(params) {
+            this.params = {
+                fadeIn: 0.0,
+                fadeOut: 0.0,
+                sustain: 0.0,
+                startAmt: 0.0,
+                endAmt: 0.0,
+                sustainAmt: 0.0,
+            };
+            this.params = params;
+        }
+        getParameter(type) {
+            if (type == "fadeIn")
+                return this.params.fadeIn;
+            if (type == "fadeOut")
+                return this.params.fadeOut;
+            if (type == "sustain")
+                return this.params.sustain;
+            if (type == "startAmt")
+                return this.params.startAmt;
+            if (type == "endAmt")
+                return this.params.endAmt;
+            if (type == "sustainAmt")
+                return this.params.sustainAmt;
+            return -1;
+        }
+        setParameter(type, value) {
+            if (type == "fadeIn")
+                this.params.fadeIn = value;
+            if (type == "fadeOut")
+                this.params.fadeOut = value;
+            if (type == "sustain")
+                this.params.sustain = value;
+            if (type == "startAmt")
+                this.params.startAmt = value;
+            if (type == "endAmt")
+                this.params.endAmt = value;
+            if (type == "sustainAmt")
+                this.params.sustainAmt = value;
+        }
+        equation(time) {
+            let lin = 0;
+            if (time < this.params.fadeIn) {
+                lin = this.params.startAmt + (time / this.params.fadeIn) * (this.params.sustainAmt - this.params.startAmt);
+            }
+            else if (time < this.params.sustain + this.params.fadeIn) {
+                lin = this.params.sustainAmt;
+            }
+            else if (time < this.params.fadeOut + this.params.sustain + this.params.fadeIn) {
+                let adjustedTime = time - this.params.fadeIn - this.params.sustain;
+                lin = this.params.endAmt + (1 - adjustedTime / this.params.fadeOut) * (this.params.sustainAmt - this.params.endAmt);
+            }
+            else {
+                lin = this.params.endAmt;
+            }
+            return lin;
+        }
+        static defaultCustomEnvelope() {
+            return new CustomEnvelope({ fadeIn: 0.5, fadeOut: 0.5, sustain: 0.2, startAmt: 0, endAmt: 0, sustainAmt: 1 });
         }
     }
     class Instrument {
@@ -3277,7 +3347,7 @@ var beepbox = (function (exports) {
                 2,
                 1,
                 6,
-                0
+                0,
             ];
             if (isModChannel) {
                 for (let mod = 0; mod < Config.modCount; mod++) {
@@ -4507,7 +4577,7 @@ var beepbox = (function (exports) {
         static frequencyFromPitch(pitch) {
             return 440.0 * Math.pow(2.0, (pitch - 69.0) / 12.0);
         }
-        addEnvelope(target, index, envelope) {
+        addEnvelope(target, index, envelope, customEnvelope = CustomEnvelope.defaultCustomEnvelope()) {
             let makeEmpty = false;
             if (!this.supportsEnvelopeTarget(target, index))
                 makeEmpty = true;
@@ -4519,6 +4589,7 @@ var beepbox = (function (exports) {
             envelopeSettings.target = makeEmpty ? Config.instrumentAutomationTargets.dictionary["none"].index : target;
             envelopeSettings.index = makeEmpty ? 0 : index;
             envelopeSettings.envelope = envelope;
+            envelopeSettings.customEnvelope = customEnvelope;
             this.envelopeCount++;
         }
         supportsEnvelopeTarget(target, index) {
@@ -4926,7 +4997,6 @@ var beepbox = (function (exports) {
                     }
                     buffer.push(74);
                     for (var effect of instrument.postProcessOrder) {
-                        console.log(effect);
                         buffer.push(base64IntToCharCode[effect]);
                     }
                     if (instrument.type != 4) {
@@ -5114,6 +5184,13 @@ var beepbox = (function (exports) {
                             buffer.push(base64IntToCharCode[instrument.envelopes[envelopeIndex].index]);
                         }
                         buffer.push(base64IntToCharCode[instrument.envelopes[envelopeIndex].envelope]);
+                        const customParams = instrument.envelopes[envelopeIndex].customEnvelope.params;
+                        buffer.push(base64IntToCharCode[customParams.fadeIn * 10]);
+                        buffer.push(base64IntToCharCode[customParams.fadeOut * 10]);
+                        buffer.push(base64IntToCharCode[customParams.startAmt * 10]);
+                        buffer.push(base64IntToCharCode[customParams.sustainAmt * 10]);
+                        buffer.push(base64IntToCharCode[customParams.endAmt * 10]);
+                        buffer.push(base64IntToCharCode[customParams.sustain * 10]);
                     }
                 }
             }
@@ -5355,6 +5432,7 @@ var beepbox = (function (exports) {
             let fromJummBox = false;
             let fromGoldBox = false;
             let fromUltraBox = false;
+            let fromMixerBox = false;
             if (variantTest == 0x6A) {
                 fromJummBox = true;
                 charIndex++;
@@ -5373,6 +5451,7 @@ var beepbox = (function (exports) {
             }
             else if (variantTest == 0x4D) {
                 fromUltraBox = true;
+                fromMixerBox = true;
                 charIndex++;
             }
             else {
@@ -6807,7 +6886,17 @@ var beepbox = (function (exports) {
                                     if (fromJummBox)
                                         aa = jummToUltraEnvelope[aa];
                                     const envelope = clamp(0, Config.envelopes.length, aa);
-                                    instrument.addEnvelope(target, index, envelope);
+                                    let customEnvelope = CustomEnvelope.defaultCustomEnvelope();
+                                    if (fromMixerBox) {
+                                        const fadeIn = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const fadeOut = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const startAmt = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const sustainAmt = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const endAmt = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        const sustain = base64CharCodeToInt[compressed.charCodeAt(charIndex++)] / 10;
+                                        customEnvelope = new CustomEnvelope({ fadeIn: fadeIn, fadeOut: fadeOut, startAmt: startAmt, sustainAmt: sustainAmt, endAmt: endAmt, sustain: sustain });
+                                    }
+                                    instrument.addEnvelope(target, index, envelope, customEnvelope);
                                 }
                             }
                         }
@@ -8569,41 +8658,44 @@ var beepbox = (function (exports) {
                 let automationTarget;
                 let targetIndex;
                 let envelope;
+                let customEnvelope;
                 if (envelopeIndex == instrument.envelopeCount) {
                     if (usedNoteSize)
                         break;
                     automationTarget = Config.instrumentAutomationTargets.dictionary["noteVolume"];
                     targetIndex = 0;
                     envelope = Config.envelopes.dictionary["note size"];
+                    customEnvelope = CustomEnvelope.defaultCustomEnvelope();
                 }
                 else {
                     let envelopeSettings = instrument.envelopes[envelopeIndex];
                     automationTarget = Config.instrumentAutomationTargets[envelopeSettings.target];
                     targetIndex = envelopeSettings.index;
                     envelope = Config.envelopes[envelopeSettings.envelope];
+                    customEnvelope = envelopeSettings.customEnvelope;
                     if (envelope.type == 0)
                         usedNoteSize = true;
                 }
                 if (automationTarget.computeIndex != null) {
                     const computeIndex = automationTarget.computeIndex + targetIndex;
-                    let envelopeStart = EnvelopeComputer.computeEnvelope(envelope, noteSecondsStart, beatTimeStart, noteSizeStart);
+                    let envelopeStart = EnvelopeComputer.computeEnvelope(envelope, noteSecondsStart, beatTimeStart, noteSizeStart, customEnvelope);
                     if (prevSlideStart) {
-                        const other = EnvelopeComputer.computeEnvelope(envelope, prevNoteSecondsStart, beatTimeStart, prevNoteSize);
+                        const other = EnvelopeComputer.computeEnvelope(envelope, prevNoteSecondsStart, beatTimeStart, prevNoteSize, customEnvelope);
                         envelopeStart += (other - envelopeStart) * prevSlideRatioStart;
                     }
                     if (nextSlideStart) {
-                        const other = EnvelopeComputer.computeEnvelope(envelope, 0.0, beatTimeStart, nextNoteSize);
+                        const other = EnvelopeComputer.computeEnvelope(envelope, 0.0, beatTimeStart, nextNoteSize, customEnvelope);
                         envelopeStart += (other - envelopeStart) * nextSlideRatioStart;
                     }
                     let envelopeEnd = envelopeStart;
                     if (instrument.discreteEnvelope == false) {
-                        envelopeEnd = EnvelopeComputer.computeEnvelope(envelope, noteSecondsEnd, beatTimeEnd, noteSizeEnd);
+                        envelopeEnd = EnvelopeComputer.computeEnvelope(envelope, noteSecondsEnd, beatTimeEnd, noteSizeEnd, customEnvelope);
                         if (prevSlideEnd) {
-                            const other = EnvelopeComputer.computeEnvelope(envelope, prevNoteSecondsEnd, beatTimeEnd, prevNoteSize);
+                            const other = EnvelopeComputer.computeEnvelope(envelope, prevNoteSecondsEnd, beatTimeEnd, prevNoteSize, customEnvelope);
                             envelopeEnd += (other - envelopeEnd) * prevSlideRatioEnd;
                         }
                         if (nextSlideEnd) {
-                            const other = EnvelopeComputer.computeEnvelope(envelope, 0.0, beatTimeEnd, nextNoteSize);
+                            const other = EnvelopeComputer.computeEnvelope(envelope, 0.0, beatTimeEnd, nextNoteSize, customEnvelope);
                             envelopeEnd += (other - envelopeEnd) * nextSlideRatioEnd;
                         }
                     }
@@ -8652,7 +8744,7 @@ var beepbox = (function (exports) {
             }
             this._modifiedEnvelopeCount = 0;
         }
-        static computeEnvelope(envelope, time, beats, noteSize) {
+        static computeEnvelope(envelope, time, beats, noteSize, customEnvelope = CustomEnvelope.defaultCustomEnvelope()) {
             switch (envelope.type) {
                 case 0: return Synth.noteSizeToVolumeMult(noteSize);
                 case 1: return 1.0;
@@ -8679,6 +8771,10 @@ var beepbox = (function (exports) {
                 case 12: {
                     let lin = (time / (16 / envelope.speed));
                     lin = lin < 1.0 ? lin : 1.0;
+                    return lin;
+                }
+                case 14: {
+                    let lin = customEnvelope.equation(time);
                     return lin;
                 }
                 default: throw new Error("Unrecognized operator envelope type.");
@@ -14140,6 +14236,7 @@ var beepbox = (function (exports) {
     exports.Channel = Channel;
     exports.Config = Config;
     exports.CustomAlgorithm = CustomAlgorithm;
+    exports.CustomEnvelope = CustomEnvelope;
     exports.CustomFeedBack = CustomFeedBack;
     exports.EnvelopeSettings = EnvelopeSettings;
     exports.FilterControlPoint = FilterControlPoint;
